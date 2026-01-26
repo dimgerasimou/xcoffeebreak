@@ -1,10 +1,14 @@
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <poll.h>
+#include <time.h>
 
 #include "mpris.h"
 #include "utils.h"
+
+#define MPRIS_FALLBACK_POLL_S 2   /* 0 = disabled */
 
 static int
 streq(const char *a, const char *b)
@@ -26,13 +30,13 @@ player_add(Mpris *m, const char *name)
 {
 	Player *p = calloc(1, sizeof(*p));
 	if (!p) {
-		warn("ecalloc failed:");
+		warn("ecalloc:");
 		return NULL;
 	}
 
 	p->name = strdup(name);
 	if (!p->name) {
-		warn("strdup failed:");
+		warn("strdup:");
 		free(p);
 		return NULL;
 	}
@@ -465,6 +469,9 @@ mpris_poll(Mpris *m, int timeout_ms)
 	/* Build pollfd array from enabled watches. Note: multiple watches can share an fd. */
 	struct pollfd pfds[64];
 	size_t nfds = 0;
+	static uint64_t last_fallback_ms = 0;
+
+	/* ----------- normal DBus watch-based polling ----------- */
 
 	for (size_t i = 0; i < m->nwatches; i++) {
 		DBusWatch *w = m->watches[i].watch;
@@ -518,4 +525,30 @@ mpris_poll(Mpris *m, int timeout_ms)
 	dbus_connection_read_write(m->conn, 0);
 
 	dispatch_all_messages(m);
+	
+#if MPRIS_FALLBACK_POLL_S > 0
+	/* ----------- optional fallback polling (monotonic) ----------- */
+	struct timespec ts;
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+		uint64_t now_ms =
+		    (uint64_t)ts.tv_sec * 1000ULL +
+		    (uint64_t)ts.tv_nsec / 1000000ULL;
+
+		if (last_fallback_ms == 0)
+			last_fallback_ms = now_ms;
+
+		if (now_ms - last_fallback_ms >=
+		    (uint64_t)MPRIS_FALLBACK_POLL_S * 1000ULL) {
+
+			last_fallback_ms = now_ms;
+
+			/* re-sync PlaybackStatus for all known players */
+			for (Player *p = m->players; p; p = p->next) {
+				int playing = 0;
+				if (dbus_call_get_playbackstatus(m, p->name, &playing) == 0)
+					set_player_playing(m, p, playing);
+			}
+		}
+	}
+#endif
 }

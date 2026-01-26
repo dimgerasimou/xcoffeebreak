@@ -94,11 +94,11 @@ main(int argc, char *argv[])
 	 * Baseline trick:
 	 * effective_idle_ms = max(0, raw_idle_ms - baseline_idle_ms)
 	 * We update baseline when:
-	 *  - user becomes active (raw idle < 1s)
-	 *  - inhibit starts or ends (so you don't instantly lock after long playback)
+	 *  - user becomes active (raw idle decreased)
+	 *  - inhibit starts (so you don't instantly lock after long playback)
 	 */
-	unsigned long baseline_idle_ms = 0;
-	int last_playing = 0;
+	unsigned long baseline_idle_ms = x11_idle_ms(dpy);
+	int last_playing = (m.conn) ? mpris_is_playing(&m) : 0;
 
 	while (g_running) {
 		/* Block up to POLL_MS, but wake immediately on MPRIS signal */
@@ -110,21 +110,25 @@ main(int argc, char *argv[])
 		}
 
 		unsigned long raw_idle = x11_idle_ms(dpy);
-		long raw_idle_s = (long)(raw_idle / 1000UL);
 
 		int playing = (m.conn) ? mpris_is_playing(&m) : 0;
 
-		/* Update baseline on activity */
-		if (raw_idle_s < 1) {
+		/* Reset baseline ONLY on actual user activity */
+		if (raw_idle < baseline_idle_ms) {
 			baseline_idle_ms = raw_idle;
 			did_lock = did_off = did_suspend = 0;
 		}
 
-		/* Update baseline on inhibit transitions */
-		if (playing != last_playing) {
+		/* On inhibit START: update baseline to prevent instant lock */
+		if (playing && !last_playing) {
 			baseline_idle_ms = raw_idle;
-			did_lock = did_off = did_suspend = 0;
 			last_playing = playing;
+		}
+
+		/* On inhibit END: just update state, keep accumulating idle time */
+		if (!playing && last_playing) {
+			last_playing = playing;
+			/* Do NOT reset baseline - user is still idle! */
 		}
 
 		/* Inhibit all actions while playing */
@@ -138,7 +142,6 @@ main(int argc, char *argv[])
 		if (!did_lock && eff_idle_s >= opt.lock_s) {
 			did_lock = 1;
 			(void)run_sh(opt.lock_cmd);
-			/* after unlock, X idle usually drops; baseline will reset on activity */
 		}
 
 		if (!did_off && eff_idle_s >= opt.off_s) {
