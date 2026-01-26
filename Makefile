@@ -2,6 +2,7 @@ CC       ?= cc
 CFLAGS   ?= -Wall -Wextra -Wno-deprecated-declarations -Os
 LDLIBS   ?= -lX11 -lXss
 
+PREFIX   ?= /usr/local/
 BINDIR   := bin
 OBJDIR   := obj
 
@@ -31,4 +32,13 @@ clean:
 	@echo "RM $(BINDIR) $(OBJDIR)"
 	@rm -rf $(BINDIR) $(OBJDIR)
 
-.PHONY: all clean
+install: $(TARGET)
+	@echo "INSTALL $(BIN) -> $(DESTDIR)$(PREFIX)/bin/$(BIN)"
+	@install -d $(DESTDIR)$(PREFIX)/bin
+	@install -m 755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/$(BIN)
+
+uninstall:
+	@echo "UNINSTALL $(DESTDIR)$(PREFIX)/bin/$(BIN)"
+	@rm -f $(DESTDIR)$(PREFIX)/bin/$(BIN)
+
+.PHONY: all clean install uninstall
