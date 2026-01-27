@@ -8,7 +8,8 @@
 #include "mpris.h"
 #include "utils.h"
 
-#define MPRIS_FALLBACK_POLL_S 2   /* 0 = disabled */
+#define MPRIS_FALLBACK_POLL_S 2     /* 0 = disabled */
+#define MPRIS_STARVATION_MS   5000  /* force re-sync if no dbus activity */
 
 static int
 streq(const char *a, const char *b)
@@ -53,7 +54,7 @@ player_remove(Mpris *m, const char *name)
 	while (*pp) {
 		Player *p = *pp;
 		if (streq(p->name, name)) {
-			if (p->is_playing)
+			if (p->is_playing && m->playing_count > 0)
 				m->playing_count--;
 			*pp = p->next;
 			free(p->name);
@@ -75,7 +76,7 @@ set_player_playing(Mpris *m, Player *p, int playing)
 	p->is_playing = playing;
 	if (playing)
 		m->playing_count++;
-	else
+	else if (m->playing_count > 0)
 		m->playing_count--;
 }
 
@@ -330,6 +331,8 @@ handle_properties_changed(Mpris *m, DBusMessage *msg)
 	DBusMessageIter array;
 	dbus_message_iter_recurse(&it, &array);
 
+	int saw_status = 0;
+
 	while (dbus_message_iter_get_arg_type(&array) == DBUS_TYPE_DICT_ENTRY) {
 		DBusMessageIter entry;
 		dbus_message_iter_recurse(&array, &entry);
@@ -341,6 +344,7 @@ handle_properties_changed(Mpris *m, DBusMessage *msg)
 		if (!dbus_message_iter_next(&entry)) break;
 
 		if (streq(key, "PlaybackStatus")) {
+			saw_status = 1;
 			const char *status = NULL;
 			if (read_variant_string(&entry, &status)) {
 				set_player_playing(m, p, streq(status, "Playing"));
@@ -348,6 +352,14 @@ handle_properties_changed(Mpris *m, DBusMessage *msg)
 		}
 
 		dbus_message_iter_next(&array);
+	}
+
+	/* Some players don't include PlaybackStatus in PropertiesChanged.
+	 * If we didn't see it, do a one-off Get to resync. */
+	if (!saw_status) {
+		int playing = 0;
+		if (dbus_call_get_playbackstatus(m, sender, &playing) == 0)
+			set_player_playing(m, p, playing);
 	}
 }
 
@@ -387,13 +399,17 @@ handle_name_owner_changed(Mpris *m, DBusMessage *msg)
 	}
 }
 
-static void
+static size_t
 dispatch_all_messages(Mpris *m)
 {
+	size_t n = 0;
+
 	for (;;) {
 		DBusMessage *msg = dbus_connection_pop_message(m->conn);
 		if (!msg)
 			break;
+
+		n++;
 
 		if (dbus_message_is_signal(msg, "org.freedesktop.DBus.Properties", "PropertiesChanged")) {
 			handle_properties_changed(m, msg);
@@ -403,6 +419,8 @@ dispatch_all_messages(Mpris *m)
 
 		dbus_message_unref(msg);
 	}
+
+	return n;
 }
 
 /* ------------------------------ MPRIS public ----------------------------- */
@@ -452,7 +470,7 @@ mpris_init(Mpris *m)
 
 	/* Drain any queued signals */
 	dbus_connection_read_write(m->conn, 0);
-	dispatch_all_messages(m);
+	(void)dispatch_all_messages(m);
 
 	return 0;
 }
@@ -470,6 +488,7 @@ mpris_poll(Mpris *m, int timeout_ms)
 	struct pollfd pfds[64];
 	size_t nfds = 0;
 	static uint64_t last_fallback_ms = 0;
+	static uint64_t last_activity_ms = 0;
 
 	/* ----------- normal DBus watch-based polling ----------- */
 
@@ -501,7 +520,7 @@ mpris_poll(Mpris *m, int timeout_ms)
 		}
 	}
 
-	(void)poll(pfds, (nfds_t)nfds, timeout_ms);
+	int pret = poll(pfds, (nfds_t)nfds, timeout_ms);
 
 	/* For each watch, call dbus_watch_handle with matching revents for its fd */
 	for (size_t i = 0; i < m->nwatches; i++) {
@@ -524,7 +543,28 @@ mpris_poll(Mpris *m, int timeout_ms)
 	/* Read queued data and handle signals */
 	dbus_connection_read_write(m->conn, 0);
 
-	dispatch_all_messages(m);
+	size_t nmsg = dispatch_all_messages(m);
+
+	/* ----------- watch starvation guard ----------- */
+	struct timespec ats;
+	if (clock_gettime(CLOCK_MONOTONIC, &ats) == 0) {
+		uint64_t now_ms =
+		    (uint64_t)ats.tv_sec * 1000ULL +
+		    (uint64_t)ats.tv_nsec / 1000000ULL;
+
+		if (last_activity_ms == 0)
+			last_activity_ms = now_ms;
+
+		if (pret > 0 || nmsg > 0) {
+			last_activity_ms = now_ms;
+		} else if (now_ms - last_activity_ms >= (uint64_t)MPRIS_STARVATION_MS) {
+			/* If we didn't see any DBus activity for a while, force a re-scan. */
+			initial_sync_players(m);
+			dbus_connection_read_write(m->conn, 0);
+			(void)dispatch_all_messages(m);
+			last_activity_ms = now_ms;
+		}
+	}
 	
 #if MPRIS_FALLBACK_POLL_S > 0
 	/* ----------- optional fallback polling (monotonic) ----------- */
