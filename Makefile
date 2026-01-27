@@ -1,5 +1,6 @@
 CC       ?= cc
 CFLAGS   ?= -Wall -Wextra -Wno-deprecated-declarations -Os
+CFLAGS   += -MMD -MP
 LDLIBS   ?= -lX11 -lXss
 
 PREFIX   ?= /usr/local/
