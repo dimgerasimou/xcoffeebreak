@@ -8,6 +8,8 @@ typedef struct {
 	uint32_t  off_s;
 	uint32_t  suspend_s;
 	uint32_t  poll_ms;
+	int       verbose;
+	int       dry_run;
 	char     *lock_cmd;
 	char     *off_cmd;
 	char     *suspend_cmd;

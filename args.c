@@ -15,6 +15,8 @@ enum {
 	OPT_SUSPEND_S,
 	OPT_SUSPEND_CMD,
 	OPT_POLL_MS,
+	OPT_VERBOSE,
+	OPT_DRY_RUN,
 	OPT_HELP,
 };
 
@@ -28,6 +30,8 @@ args_defaults(Options *o)
 	o->suspend_s = 900;
 	o->suspend_cmd = estrdup("systemctl suspend");
 	o->poll_ms = 500;
+	o->verbose = 0;
+	o->dry_run = 0;
 }
 
 static int
@@ -52,12 +56,15 @@ parse_uint32(uint32_t *n, const char *s)
 static void
 usage(void)
 {
-	fputs("usage: xcoffeebreak [--help][--poll_ms milliseconds]\n"
+	fputs("usage: xcoffeebreak [--help][--verbose][--dry_run]\n"
 	      "                    [--lock_s seconds][--lock_cmd cmd]\n"
 	      "                    [--off_s seconds][--off_cmd cmd]\n"
 	      "                    [--suspend_s seconds][--suspend_cmd cmd]\n"
+	      "                    [--poll_ms milliseconds]\n"
 	      "\n"
 	      "--help              Print this message and exit\n"
+	      "--verbose           Print state transitions\n"
+	      "--dry_run           Do not run commands (log only)\n"
 	      "--poll_ms           Set polling rate in milliseconds\n"
 	      "--lock_s            Set locker time in seconds\n"
 	      "--lock_cmd          Set locker command\n"
@@ -67,13 +74,14 @@ usage(void)
 	      "--suspend_cmd       Set suspend command\n"
 	      "\n"
 	      "Defaults:\n"
-	      "  poll_ms     500\n"
 	      "  lock_s      300\n"
 	      "  lock_cmd    slock\n"
 	      "  off_s       420\n"
 	      "  off_cmd     xset dpms force off\n"
 	      "  suspend_s   900\n"
-	      "  suspend_cmd systemctl suspend\n", stderr);
+	      "  suspend_cmd systemctl suspend\n"
+	      "  poll_ms     500\n",
+	      stderr);
 
 }
 
@@ -88,6 +96,8 @@ args_argv(Options *o, const int argc, char *argv[])
 		{ "suspend_s",   required_argument, 0, OPT_SUSPEND_S   },
 		{ "suspend_cmd", required_argument, 0, OPT_SUSPEND_CMD },
 		{ "poll_ms",     required_argument, 0, OPT_POLL_MS     },
+		{ "verbose",     no_argument,       0, OPT_VERBOSE     },
+		{ "dry_run",     no_argument,       0, OPT_DRY_RUN     },
 		{ "help",        no_argument,       0, OPT_HELP        },
 		{ 0,             0,                 0, 0               },
 	};
@@ -136,6 +146,14 @@ args_argv(Options *o, const int argc, char *argv[])
 				warn("invalid argument for --poll_ms");
 				return -1;
 			}
+			break;
+
+		case OPT_VERBOSE:
+			o->verbose = 1;
+			break;
+
+		case OPT_DRY_RUN:
+			o->dry_run = 1;
 			break;
 
 		case OPT_HELP:
