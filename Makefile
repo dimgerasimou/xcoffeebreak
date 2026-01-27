@@ -9,6 +9,7 @@ OBJDIR   := obj
 BIN      := xcoffeebreak
 SRCS     := xcoffeebreak.c mpris.c utils.c args.c
 OBJS     := $(SRCS:%.c=$(OBJDIR)/%.o)
+DEPS     := $(OBJS:.o=.d)
 TARGET   := $(BINDIR)/$(BIN)
 
 PKG      := dbus-1
@@ -21,7 +22,7 @@ $(TARGET): $(OBJS) | $(BINDIR)
 	@echo "LD $(OBJS) -> $@"
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS) $(LDLIBS)
 
-$(OBJDIR)/%.o: %.c mpris.h utils.h args.h | $(OBJDIR)
+$(OBJDIR)/%.o: %.c | $(OBJDIR)
 	@echo "CC $< -> $@"
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -40,5 +41,7 @@ install: $(TARGET)
 uninstall:
 	@echo "UNINSTALL $(DESTDIR)$(PREFIX)/bin/$(BIN)"
 	@rm -f $(DESTDIR)$(PREFIX)/bin/$(BIN)
+
+-include $(DEPS)
 
 .PHONY: all clean install uninstall
