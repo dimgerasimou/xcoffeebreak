@@ -42,6 +42,23 @@ die(const char *fmt, ...)
 	exit(1);
 }
 
+void
+verbose(const unsigned int v, const char *fmt, ...)
+{
+	va_list ap;
+
+	if (!v)
+		return;
+
+	fputs("xcoffeebreak: [VERBOSE]", stderr);
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+
+	fputc('\n', stderr);
+}
+
 void *
 ecalloc(size_t nmemb, size_t size)
 {

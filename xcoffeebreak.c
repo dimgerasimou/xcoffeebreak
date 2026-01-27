@@ -5,7 +5,6 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <sys/wait.h>
 
 #include <X11/Xlib.h>
 #include <X11/extensions/scrnsaver.h>
@@ -16,16 +15,22 @@
 
 static volatile sig_atomic_t g_running = 1;
 
-static void
-on_signal(int sig)
-{
-	(void)sig;
-	g_running = 0;
-}
+typedef enum {
+	ST_ACTIVE = 0,
+	ST_LOCKED,
+	ST_OFF,
+	ST_SUSPENDED,
+} State;
 
-/* Run a command via /bin/sh -c ... */
-static int
-run_sh(const char *cmd)
+static int            run(const char *cmd);
+static void           sighandler(int sig);
+static State          state_desired(const Options *opt, long idle_s);
+static const char    *state_name(State st);
+static void           state_transition(const Options *opt, State from, State to);
+static unsigned long  x11_idle_ms(Display *dpy, XScreenSaverInfo *info);
+
+int
+run(const char *cmd)
 {
 	if (!cmd || !*cmd) return 0;
 
@@ -39,25 +44,87 @@ run_sh(const char *cmd)
 		_exit(127);
 	}
 
-	int st = 0;
-	if (waitpid(pid, &st, 0) < 0) {
-		warn("waitpid:");
-		return -1;
-	}
-	return st;
+	return 0;
 }
 
-static unsigned long
-x11_idle_ms(Display *dpy)
+void
+sighandler(int sig)
 {
-	XScreenSaverInfo *info = XScreenSaverAllocInfo();
+	(void)sig;
+	g_running = 0;
+}
+
+State
+state_desired(const Options *opt, long idle_s)
+{
+	if (idle_s >= (long)opt->suspend_s) return ST_SUSPENDED;
+	if (idle_s >= (long)opt->off_s)     return ST_OFF;
+	if (idle_s >= (long)opt->lock_s)    return ST_LOCKED;
+	return ST_ACTIVE;
+}
+
+const char *
+state_name(State st)
+{
+	switch (st) {
+	case ST_ACTIVE:    return "ACTIVE";
+	case ST_LOCKED:    return "LOCKED";
+	case ST_OFF:       return "OFF";
+	case ST_SUSPENDED: return "SUSPENDED";
+	default:           return "?";
+	}
+}
+
+void
+state_transition(const Options *opt, State from, State to)
+{
+	/* Only execute actions when moving forward. */
+	for (int st = (int)from + 1; st <= (int)to; st++) {
+		const char *cmd = NULL;
+		const char *what = NULL;
+
+		switch ((State)st) {
+		case ST_LOCKED:
+			what = "lock";
+			cmd = opt->lock_cmd;
+			break;
+
+		case ST_OFF:
+			what = "off";
+			cmd = opt->off_cmd;
+			break;
+
+		case ST_SUSPENDED:
+			what = "suspend";
+			cmd = opt->suspend_cmd;
+			break;
+
+		default:
+			die("invalid state: %d", st);
+			break;
+		}
+
+		if (!cmd)
+			continue;
+
+		verbose(opt->verbose, "%s -> %s (%s)",
+		        state_name(from), state_name((State)st), what);
+
+		if (!opt->dry_run)
+			(void)run(cmd);
+
+		from = (State)st;
+	}
+}
+
+unsigned long
+x11_idle_ms(Display *dpy, XScreenSaverInfo *info)
+{
 	if (!info)
 		return 0;
 
 	XScreenSaverQueryInfo(dpy, DefaultRootWindow(dpy), info);
-	unsigned long idle = info->idle;
-	XFree(info);
-	return idle;
+	return info->idle;
 }
 
 int
@@ -71,14 +138,25 @@ main(int argc, char *argv[])
 	/* Signals */
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = on_signal;
+	sa.sa_handler = sighandler;
 	sigaction(SIGINT,  &sa, NULL);
 	sigaction(SIGTERM, &sa, NULL);
+
+	/* Avoid zombie children from non-blocking run_sh() */
+	struct sigaction sachld;
+	memset(&sachld, 0, sizeof(sachld));
+	sachld.sa_handler = SIG_IGN;
+	sachld.sa_flags = SA_NOCLDWAIT;
+	sigaction(SIGCHLD, &sachld, NULL);
 
 	/* X */
 	Display *dpy = XOpenDisplay(NULL);
 	if (!dpy)
 		die("cannot open X display");
+
+	XScreenSaverInfo *xss = XScreenSaverAllocInfo();
+	if (!xss)
+		die("XScreenSaverAllocInfo failed");
 
 	/* MPRIS */
 	Mpris m;
@@ -87,8 +165,7 @@ main(int argc, char *argv[])
 		memset(&m, 0, sizeof(m));
 	}
 
-	/* Stage guards */
-	int did_lock = 0, did_off = 0, did_suspend = 0;
+	State st = ST_ACTIVE;
 
 	/*
 	 * Baseline trick:
@@ -97,26 +174,27 @@ main(int argc, char *argv[])
 	 *  - user becomes active (raw idle decreased)
 	 *  - inhibit starts (so you don't instantly lock after long playback)
 	 */
-	unsigned long baseline_idle_ms = x11_idle_ms(dpy);
+	unsigned long baseline_idle_ms = x11_idle_ms(dpy, xss);
 	int last_playing = (m.conn) ? mpris_is_playing(&m) : 0;
 
 	while (g_running) {
 		/* Block up to POLL_MS, but wake immediately on MPRIS signal */
-		if (m.conn) mpris_poll(&m, (int)opt.poll_ms);
-		else {
+		if (m.conn) {
+			mpris_poll(&m, (int)opt.poll_ms);
+		} else {
 			struct timespec ts = { .tv_sec = opt.poll_ms / 1000,
 			                       .tv_nsec = (opt.poll_ms % 1000) * 1000000L };
 			nanosleep(&ts, NULL);
 		}
 
-		unsigned long raw_idle = x11_idle_ms(dpy);
+		unsigned long raw_idle = x11_idle_ms(dpy, xss);
 
 		int playing = (m.conn) ? mpris_is_playing(&m) : 0;
 
 		/* Reset baseline ONLY on actual user activity */
 		if (raw_idle < baseline_idle_ms) {
 			baseline_idle_ms = raw_idle;
-			did_lock = did_off = did_suspend = 0;
+			st = ST_ACTIVE;
 		}
 
 		/* On inhibit START: update baseline to prevent instant lock */
@@ -139,23 +217,15 @@ main(int argc, char *argv[])
 		unsigned long eff_idle = (raw_idle > baseline_idle_ms) ? (raw_idle - baseline_idle_ms) : 0;
 		long eff_idle_s = (long)(eff_idle / 1000UL);
 
-		if (!did_lock && eff_idle_s >= opt.lock_s) {
-			did_lock = 1;
-			(void)run_sh(opt.lock_cmd);
-		}
-
-		if (!did_off && eff_idle_s >= opt.off_s) {
-			did_off = 1;
-			(void)run_sh(opt.off_cmd);
-		}
-
-		if (!did_suspend && eff_idle_s >= opt.suspend_s) {
-			did_suspend = 1;
-			(void)run_sh(opt.suspend_cmd);
+		State want = state_desired(&opt, eff_idle_s);
+		if (want > st) {
+			state_transition(&opt, st, want);
+			st = want;
 		}
 	}
 
 	args_free(&opt);
+	XFree(xss);
 	XCloseDisplay(dpy);
 	return 0;
 }
