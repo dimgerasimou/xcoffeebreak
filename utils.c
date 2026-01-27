@@ -50,7 +50,7 @@ verbose(const unsigned int v, const char *fmt, ...)
 	if (!v)
 		return;
 
-	fputs("xcoffeebreak: [VERBOSE]", stderr);
+	fputs("xcoffeebreak: [VERBOSE] ", stderr);
 
 	va_start(ap, fmt);
 	vfprintf(stderr, fmt, ap);
