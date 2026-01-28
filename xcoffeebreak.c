@@ -23,7 +23,7 @@ typedef enum {
 	ST_SUSPENDED,
 } State;
 
-static int            detect_suspend_resume(unsigned long *last_clock_ms);
+static bool           detect_suspend_resume(unsigned long *last_clock_ms);
 static int            run(const char *cmd);
 static void           sighandler(int sig);
 static State          state_desired(const Options *opt, unsigned long idle_s);
@@ -31,7 +31,7 @@ static const char    *state_name(State st);
 static void           state_transition(const Options *opt, State from, State to);
 static unsigned long  x11_idle_ms(Display *dpy, XScreenSaverInfo *info);
 
-int
+bool
 detect_suspend_resume(unsigned long *last_clock_ms)
 {
 	/*
@@ -41,7 +41,7 @@ detect_suspend_resume(unsigned long *last_clock_ms)
 	 */
 	struct timespec ts;
 	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
-		return 0;
+		return false;
 	
 	unsigned long now_ms = 
 	    (unsigned long)ts.tv_sec * 1000UL +
@@ -49,7 +49,7 @@ detect_suspend_resume(unsigned long *last_clock_ms)
 	
 	if (*last_clock_ms == 0) {
 		*last_clock_ms = now_ms;
-		return 0;
+		return false;
 	}
 	
 	/* Check if time jumped forward by more than 5 seconds

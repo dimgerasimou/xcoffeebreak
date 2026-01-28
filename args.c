@@ -31,8 +31,8 @@ args_defaults(Options *o)
 	o->suspend_s = 900;
 	o->suspend_cmd = estrdup("systemctl suspend");
 	o->poll_ms = 500;
-	o->verbose = 0;
-	o->dry_run = 0;
+	o->verbose = false;
+	o->dry_run = false;
 }
 
 static int
@@ -150,11 +150,11 @@ args_argv(Options *o, const int argc, char *argv[])
 			break;
 
 		case OPT_VERBOSE:
-			o->verbose = 1;
+			o->verbose = true;
 			break;
 
 		case OPT_DRY_RUN:
-			o->dry_run = 1;
+			o->dry_run = true;
 			break;
 
 		case OPT_HELP:

@@ -69,7 +69,7 @@ player_remove(Mpris *m, const char *name)
 }
 
 static void
-set_player_playing(Mpris *m, Player *p, int playing)
+set_player_playing(Mpris *m, Player *p, bool playing)
 {
 	if (!p)
 		return;
@@ -199,9 +199,9 @@ dbus_call_get_playbackstatus(Mpris *m, const char *service, int *out_playing)
 		service,
 		"/org/mpris/MediaPlayer2",
 		"org.freedesktop.DBus.Properties",
-		"Get"
-	);
-	if (!msg) return -1;
+		"Get");
+	if (!msg)
+		return -1;
 
 	const char *iface = "org.mpris.MediaPlayer2.Player";
 	const char *prop  = "PlaybackStatus";
@@ -256,16 +256,17 @@ initial_sync_players(Mpris *m)
 		"org.freedesktop.DBus",
 		"/org/freedesktop/DBus",
 		"org.freedesktop.DBus",
-		"ListNames"
-	);
-	if (!msg) return;
+		"ListNames");
+	if (!msg)
+		return;
 
 	DBusError err;
 	dbus_error_init(&err);
 	DBusMessage *reply = dbus_connection_send_with_reply_and_block(m->conn, msg, DBUS_CALL_TIMEOUT_MS, &err);
 	dbus_message_unref(msg);
 	if (!reply) {
-		if (dbus_error_is_set(&err)) dbus_error_free(&err);
+		if (dbus_error_is_set(&err))
+			dbus_error_free(&err);
 		return;
 	}
 
@@ -284,12 +285,12 @@ initial_sync_players(Mpris *m)
 
 		if (name && strncmp(name, "org.mpris.MediaPlayer2.", 23) == 0) {
 			Player *p = player_find(m, name);
-			if (!p) p = player_add(m, name);
+			if (!p)
+				p = player_add(m, name);
 
 			int playing = 0;
-			if (p && dbus_call_get_playbackstatus(m, name, &playing) == 0) {
+			if (p && dbus_call_get_playbackstatus(m, name, &playing) == 0)
 				set_player_playing(m, p, playing);
-			}
 		}
 
 		dbus_message_iter_next(&arr);
@@ -488,7 +489,7 @@ mpris_init(Mpris *m, int verbose)
 	return 0;
 }
 
-int
+bool
 mpris_is_playing(const Mpris *m)
 {
 	return m->playing_count > 0;
