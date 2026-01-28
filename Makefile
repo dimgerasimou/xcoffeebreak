@@ -8,7 +8,7 @@ BINDIR   := bin
 OBJDIR   := obj
 
 BIN      := xcoffeebreak
-SRCS     := xcoffeebreak.c mpris.c utils.c args.c
+SRCS     := xcoffeebreak.c mpris.c utils.c args.c state.c
 OBJS     := $(SRCS:%.c=$(OBJDIR)/%.o)
 DEPS     := $(OBJS:.o=.d)
 TARGET   := $(BINDIR)/$(BIN)
@@ -64,4 +64,3 @@ uninstall:
 -include $(DEPS)
 
 .PHONY: all clean install uninstall
-
