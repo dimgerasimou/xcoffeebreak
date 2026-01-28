@@ -291,8 +291,9 @@ main(int argc, char *argv[])
 
 		/* On inhibit END: just update state, keep accumulating idle time */
 		if (!playing && last_playing) {
+			baseline_idle_ms = raw_idle;
 			last_playing = playing;
-			/* Do NOT reset baseline - user is still idle! */
+			verbose(opt.verbose, "[MPRIS] inhibit ended (reset baseline)");
 		}
 
 		/* Inhibit all actions while playing */
