@@ -158,7 +158,7 @@ state_transition(const Options *opt, State from, State to)
 		if (!cmd)
 			continue;
 
-		verbose(opt->verbose, "%s -> %s (%s)",
+		verbose(opt->verbose, "[STATE] %s -> %s (%s)",
 		        state_name(from), state_name((State)st), what);
 
 		if (!opt->dry_run)
@@ -203,16 +203,16 @@ main(int argc, char *argv[])
 	/* X */
 	Display *dpy = XOpenDisplay(NULL);
 	if (!dpy)
-		die("cannot open X display");
+		die("[X11] cannot open X display");
 
 	XScreenSaverInfo *xss = XScreenSaverAllocInfo();
 	if (!xss)
-		die("XScreenSaverAllocInfo failed");
+		die("[X11] XScreenSaverAllocInfo failed");
 
 	/* MPRIS */
 	Mpris m;
 	if (mpris_init(&m, opt.verbose) < 0) {
-		warn("MPRIS init failed (running without inhibit)");
+		warn("[MPRIS] init failed (running without inhibit)");
 		memset(&m, 0, sizeof(m));
 	}
 
@@ -243,7 +243,7 @@ main(int argc, char *argv[])
 			
 			/* Check for DBus connection loss */
 			if (mpris_check_connection(&m) < 0) {
-				warn("Lost DBus connection, running without inhibit");
+				warn("[MPRIS] Lost DBus connection, running without inhibit");
 				m.conn = NULL;
 			}
 		} else {
@@ -260,7 +260,7 @@ main(int argc, char *argv[])
 			baseline_idle_ms = raw_idle;
 			last_raw_idle = raw_idle;
 			if (st != ST_ACTIVE) {
-				verbose(opt.verbose, "%s -> %s (resume from suspend)",
+				verbose(opt.verbose, "[STATE] %s -> %s (resume from suspend)",
 				        state_name(st), state_name(ST_ACTIVE));
 				st = ST_ACTIVE;
 			}
@@ -276,7 +276,7 @@ main(int argc, char *argv[])
 		if (raw_idle + X11_IDLE_JITTER_MS < last_raw_idle) {
 			baseline_idle_ms = raw_idle;
 			if (st != ST_ACTIVE) {
-				verbose(opt.verbose, "%s -> %s (user activity)",
+				verbose(opt.verbose, "[STATE] %s -> %s (user activity)",
 				        state_name(st), state_name(ST_ACTIVE));
 				st = ST_ACTIVE;
 			}

@@ -27,13 +27,13 @@ player_add(Mpris *m, const char *name)
 {
 	Player *p = calloc(1, sizeof(*p));
 	if (!p) {
-		warn("mpris: calloc failed");
+		warn("[MPRIS] calloc failed");
 		return NULL;
 	}
 
 	p->name = strdup(name);
 	if (!p->name) {
-		warn("mpris: strdup failed");
+		warn("[MPRIS] strdup failed");
 		free(p);
 		return NULL;
 	}
@@ -42,7 +42,7 @@ player_add(Mpris *m, const char *name)
 	m->players = p;
 	
 	if (m->verbose)
-		verbose(1, "MPRIS: player added: %s", name);
+		verbose(1, "[MPRIS] player added: %s", name);
 	
 	return p;
 }
@@ -59,7 +59,7 @@ player_remove(Mpris *m, const char *name)
 			*pp = p->next;
 			
 			if (m->verbose)
-				verbose(1, "MPRIS: player removed: %s", name);
+				verbose(1, "[MPRIS] player removed: %s", name);
 			
 			free(p->name);
 			free(p);
@@ -79,7 +79,7 @@ set_player_playing(Mpris *m, Player *p, int playing)
 
 	/* Verbose logging for state changes */
 	if (m->verbose) {
-		verbose(1, "MPRIS: %s %s -> %s", 
+		verbose(1, "[MPRIS] %s %s -> %s", 
 		        p->name,
 		        p->is_playing ? "playing" : "stopped",
 		        playing ? "playing" : "stopped");
@@ -130,7 +130,7 @@ add_watch(DBusWatch *watch, void *data)
 		return TRUE;
 
 	if (watches_reserve(m, m->nwatches + 1) < 0) {
-		warn("mpris: out of memory (add_watch)");
+		warn("[MPRIS] out of memory (add_watch)");
 		return FALSE;
 	}
 
@@ -449,7 +449,7 @@ mpris_init(Mpris *m, int verbose)
 
 	m->conn = dbus_bus_get(DBUS_BUS_SESSION, &err);
 	if (!m->conn) {
-		warn("mpris: dbus_bus_get failed: %s", err.message ? err.message : "unknown error");
+		warn("[MPRIS] dbus_bus_get failed: %s", err.message ? err.message : "unknown error");
 		dbus_error_free(&err);
 		return -1;
 	}
@@ -459,7 +459,7 @@ mpris_init(Mpris *m, int verbose)
 		"type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged'",
 		&err);
 	if (dbus_error_is_set(&err)) {
-		warn("mpris: add_match(PropertiesChanged) failed: %s", err.message);
+		warn("[MPRIS] add_match(PropertiesChanged) failed: %s", err.message);
 		dbus_error_free(&err);
 		return -1;
 	}
@@ -469,13 +469,13 @@ mpris_init(Mpris *m, int verbose)
 		"type='signal',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0namespace='org.mpris.MediaPlayer2'",
 		&err);
 	if (dbus_error_is_set(&err)) {
-		warn("mpris: add_match(NameOwnerChanged) failed: %s", err.message);
+		warn("[MPRIS] add_match(NameOwnerChanged) failed: %s", err.message);
 		dbus_error_free(&err);
 		return -1;
 	}
 
 	if (!dbus_connection_set_watch_functions(m->conn, add_watch, remove_watch, toggle_watch, m, NULL)) {
-		warn("mpris: set_watch_functions failed");
+		warn("[MPRIS] set_watch_functions failed");
 		return -1;
 	}
 
@@ -502,7 +502,7 @@ mpris_check_connection(Mpris *m)
 		return -1;
 		
 	if (!dbus_connection_get_is_connected(m->conn)) {
-		warn("mpris: DBus connection lost");
+		warn("[MPRIS] DBus connection lost");
 		return -1;
 	}
 	
@@ -544,7 +544,7 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 				size_t new_cap = pfds_cap ? pfds_cap * 2 : 16;
 				struct pollfd *new_pfds = realloc(pfds, new_cap * sizeof(*new_pfds));
 				if (!new_pfds) {
-					warn("mpris: realloc failed for pollfd array");
+					warn("[MPRIS] realloc failed for pollfd array:");
 					free(pfds);
 					return;
 				}
