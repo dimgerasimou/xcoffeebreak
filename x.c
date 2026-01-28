@@ -48,6 +48,8 @@ x11_idle_ms(X11 *x)
 	if (!x || !x->dpy || !x->info)
 		die("[X11] Connection lost");
 
-	XScreenSaverQueryInfo(x->dpy, DefaultRootWindow(x->dpy), x->info);
+	if (!XScreenSaverQueryInfo(x->dpy, DefaultRootWindow(x->dpy), x->info))
+		die("[X11] XScreenSaverQueryInfo failed");
+
 	return x->info->idle;
 }
