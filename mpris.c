@@ -1,4 +1,3 @@
-#include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -516,8 +515,8 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 	struct pollfd *pfds = NULL;
 	size_t nfds = 0;
 	size_t pfds_cap = 0;
-	static uint64_t last_fallback_ms = 0;
-	static uint64_t last_activity_ms = 0;
+	static unsigned long long last_fallback_ms = 0;
+	static unsigned long long last_activity_ms = 0;
 
 	/* ----------- normal DBus watch-based polling ----------- */
 
@@ -629,16 +628,16 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 	/* ----------- watch starvation guard ----------- */
 	struct timespec ats;
 	if (clock_gettime(CLOCK_MONOTONIC, &ats) == 0) {
-		uint64_t now_ms =
-		    (uint64_t)ats.tv_sec * 1000ULL +
-		    (uint64_t)ats.tv_nsec / 1000000ULL;
+		unsigned long long now_ms =
+		    (unsigned long long)ats.tv_sec * 1000ULL +
+		    (unsigned long long)ats.tv_nsec / 1000000ULL;
 
 		if (last_activity_ms == 0)
 			last_activity_ms = now_ms;
 
 		if (pret > 0 || nmsg > 0) {
 			last_activity_ms = now_ms;
-		} else if (now_ms - last_activity_ms >= (uint64_t)MPRIS_STARVATION_MS) {
+		} else if (now_ms - last_activity_ms >= (unsigned long long)MPRIS_STARVATION_MS) {
 			/* If we didn't see any DBus activity for a while, force a re-scan. */
 			initial_sync_players(m);
 			dbus_connection_read_write(m->conn, 0);
@@ -651,15 +650,15 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 	/* ----------- optional fallback polling (monotonic) ----------- */
 	struct timespec ts;
 	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-		uint64_t now_ms =
-		    (uint64_t)ts.tv_sec * 1000ULL +
-		    (uint64_t)ts.tv_nsec / 1000000ULL;
+		unsigned long long now_ms =
+		    (unsigned long long)ts.tv_sec * 1000ULL +
+		    (unsigned long long)ts.tv_nsec / 1000000ULL;
 
 		if (last_fallback_ms == 0)
 			last_fallback_ms = now_ms;
 
 		if (now_ms - last_fallback_ms >=
-		    (uint64_t)MPRIS_FALLBACK_POLL_S * 1000ULL) {
+		    (unsigned long long)MPRIS_FALLBACK_POLL_S * 1000ULL) {
 
 			last_fallback_ms = now_ms;
 

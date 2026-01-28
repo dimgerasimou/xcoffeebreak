@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,7 +36,7 @@ args_defaults(Options *o)
 }
 
 static int
-parse_uint32(uint32_t *n, const char *s)
+parseul(unsigned long *n, const char *s)
 {
 	char *end;
 	unsigned long v;
@@ -46,10 +47,10 @@ parse_uint32(uint32_t *n, const char *s)
 	errno = 0;
 	v = strtoul(s, &end, 10);
 
-	if (errno != 0 || end == s || *end != '\0' || v > UINT32_MAX)
+	if (errno != 0 || end == s || *end != '\0' || v > ULONG_MAX)
 		return -1;
 
-	*n = (uint32_t)v;
+	*n = (unsigned long)v;
 	return 0;
 }
 
@@ -106,7 +107,7 @@ args_argv(Options *o, const int argc, char *argv[])
 	while ((opt = getopt_long(argc, argv, "", longopts, NULL)) != -1) {
 		switch (opt) {
 		case OPT_LOCK_S:
-			if (parse_uint32(&(o->lock_s), optarg)) {
+			if (parseul(&(o->lock_s), optarg)) {
 				warn("invalid argument for --lock_s");
 				return -1;
 			}
@@ -118,7 +119,7 @@ args_argv(Options *o, const int argc, char *argv[])
 			break;
 
 		case OPT_OFF_S:
-			if (parse_uint32(&o->off_s, optarg)) {
+			if (parseul(&o->off_s, optarg)) {
 				warn("invalid argument for --off_s");
 				return -1;
 			}
@@ -130,7 +131,7 @@ args_argv(Options *o, const int argc, char *argv[])
 			break;
 
 		case OPT_SUSPEND_S:
-			if (parse_uint32(&o->suspend_s, optarg)) {
+			if (parseul(&o->suspend_s, optarg)) {
 				warn("invalid argument for --suspend_s");
 				return -1;
 			}
@@ -142,7 +143,7 @@ args_argv(Options *o, const int argc, char *argv[])
 			break;
 
 		case OPT_POLL_MS:
-			if (parse_uint32(&o->poll_ms, optarg)) {
+			if (parseul(&o->poll_ms, optarg)) {
 				warn("invalid argument for --poll_ms");
 				return -1;
 			}

@@ -1,13 +1,11 @@
 #ifndef ARGS_H
 #define ARGS_H
 
-#include <stdint.h>
-
 typedef struct {
-	uint32_t  lock_s;
-	uint32_t  off_s;
-	uint32_t  suspend_s;
-	uint32_t  poll_ms;
+	unsigned long  lock_s;
+	unsigned long  off_s;
+	unsigned long  suspend_s;
+	unsigned long  poll_ms;
 	int       verbose;
 	int       dry_run;
 	char     *lock_cmd;

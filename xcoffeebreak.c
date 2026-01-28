@@ -1,7 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <signal.h>
-#include <stdint.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
