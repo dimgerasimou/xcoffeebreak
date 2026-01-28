@@ -1,14 +1,14 @@
-#include <stdlib.h>
 #include <dbus/dbus.h>
-#include <stdio.h>
-#include <string.h>
+#include <errno.h>
 #include <poll.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
-
 #include "mpris.h"
 #include "utils.h"
 
-#define MPRIS_FALLBACK_POLL_S 2     /* 0 = disabled */
+#define MPRIS_FALLBACK_POLL_S 10000 /* 0 = disabled */
 #define MPRIS_STARVATION_MS   5000  /* force re-sync if no dbus activity */
 #define DBUS_CALL_TIMEOUT_MS  200   /* Timeout for blocking DBus calls (ms) */
 
@@ -143,8 +143,12 @@ static dbus_bool_t
 watch_add(DBusWatch *watch, void *data)
 {
 	Mpris *m = (Mpris *)data;
-	if (!dbus_watch_get_enabled(watch))
-		return TRUE;
+
+	/*
+	 * DBus may add watches disabled and later enable them via watch_toggle().
+	 * We must still track them here, otherwise we'll never poll/handle them
+	 * once they become enabled.
+	 */
 
 	if (watch_index_by_ptr(m, watch) >= 0)
 		return TRUE;
@@ -598,7 +602,6 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 	struct pollfd *pfds = NULL;
 	size_t nfds = 0;
 	size_t pfds_cap = 0;
-	static unsigned long long last_fallback_ms = 0;
 	static unsigned long long last_activity_ms = 0;
 
 	/* ----------- normal DBus watch-based polling ----------- */
@@ -661,6 +664,15 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 	}
 
 	int pret = poll(pfds, (nfds_t)nfds, (int)timeout_ms);
+	if (pret < 0) {
+		if (errno != EINTR) {
+			warn("[MPRIS] poll failed:");
+			free(pfds);
+			return -1;
+		}
+		/* Interrupted by signal: treat as no events. */
+		pret = 0;
+	}
 
 	/* For each watch, call dbus_watch_handle with matching revents for its fd
 	 * BUT only pass flags that this specific watch requested */
@@ -730,6 +742,7 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 	}
 	
 #if MPRIS_FALLBACK_POLL_S > 0
+	static unsigned long long last_fallback_ms = 0;
 	/* ----------- optional fallback polling (monotonic) ----------- */
 	struct timespec ts;
 	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
