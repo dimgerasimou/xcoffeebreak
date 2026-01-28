@@ -24,13 +24,13 @@ enum {
 static void
 args_defaults(Options *o)
 {
-	o->lock_s = 300;
+	o->lock_s = 15 * 60;
 	o->lock_cmd = estrdup("slock");
-	o->off_s = 420;
+	o->off_s = 30 * 60;
 	o->off_cmd = estrdup("xset dpms force off");
-	o->suspend_s = 900;
+	o->suspend_s = 45 * 60;
 	o->suspend_cmd = estrdup("systemctl suspend");
-	o->poll_ms = 500;
+	o->poll_ms = 1000;
 	o->verbose = false;
 	o->dry_run = false;
 }
