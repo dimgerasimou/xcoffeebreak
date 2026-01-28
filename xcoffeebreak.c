@@ -1,5 +1,3 @@
-#define _POSIX_C_SOURCE 200809L
-
 #include <signal.h>
 #include <string.h>
 #include <time.h>
@@ -17,7 +15,7 @@ static volatile sig_atomic_t g_running = 1;
 static void cleanup(Options *opt, X11 *x, Mpris *m);
 static void init(Options *opt, X11 **x, StateManager *sm, Mpris **m);
 static void signals_init(void);
-static void poll(Mpris **m, unsigned int timeout_ms);
+static void poll_wait(Mpris **m, unsigned int timeout_ms);
 static void sighandler(int sig);
 
 void
@@ -56,7 +54,7 @@ signals_init(void)
 }
 
 void
-poll(Mpris **m, unsigned int timeout_ms)
+poll_wait(Mpris **m, unsigned int timeout_ms)
 {
 	if (m && *m) {
 		if (mpris_poll(*m, timeout_ms) < 0) {
@@ -98,7 +96,7 @@ main(int argc, char *argv[])
 	while (g_running) {
 		State st;
 
-		poll(&m, opt.poll_ms);
+		poll_wait(&m, opt.poll_ms);
 
 		/* Check for suspend/resume */
 		if (state_manager_check_suspend(&sm)) {
