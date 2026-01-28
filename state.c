@@ -19,16 +19,13 @@ state_manager_init(StateManager *sm, unsigned long initial_idle_ms)
 }
 
 void
-state_manager_handle_resume(StateManager *sm, unsigned long raw_idle_ms, bool ver)
+state_manager_handle_resume(StateManager *sm, unsigned long raw_idle_ms, bool v)
 {
 	sm->baseline_idle_ms = raw_idle_ms;
 	sm->last_raw_idle_ms = raw_idle_ms;
-	
+
 	if (sm->current != ST_ACTIVE) {
-		if (ver) {
-			verbose(1, "[STATE] %s -> %s (resume from suspend)",
-			        state_name(sm->current), state_name(ST_ACTIVE));
-		}
+		verbose(v, "[STATE] %s -> %s (resume from suspend)", state_name(sm->current), state_name(ST_ACTIVE));
 		sm->current = ST_ACTIVE;
 	}
 }

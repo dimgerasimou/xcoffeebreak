@@ -4,17 +4,17 @@
 #include "utils.h"
 #include "x.h"
 
-typedef struct {
+struct X11 {
 	Display *dpy;
 	XScreenSaverInfo *info;
-} X11;
+};
 
 X11 *
 x11_init(void)
 {
 	X11 *x;
 
-	x = ecalloc(1, sizeof(&x));
+	x = ecalloc(1, sizeof(*x));
 
 	x->dpy = XOpenDisplay(NULL);
 	if (!x->dpy)

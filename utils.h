@@ -1,5 +1,5 @@
-#ifndef UTILS_H
-#define UTILS_H
+#ifndef XCOFFEEBREAK_UTILS_H
+#define XCOFFEEBREAK_UTILS_H
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -33,4 +33,4 @@ char *estrdup(const char *s);
 /* String equality check - both arguments must be non-NULL */
 #define streq(a, b) (strcmp((a), (b)) == 0)
 
-#endif /* UTILS_H */
+#endif /* XCOFFEEBREAK_UTILS_H */

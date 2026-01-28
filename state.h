@@ -1,5 +1,5 @@
-#ifndef STATE_H
-#define STATE_H
+#ifndef XCOFFEEBREAK_STATE_H
+#define XCOFFEEBREAK_STATE_H
 
 #include <stdbool.h>
 #include "args.h"
@@ -49,4 +49,4 @@ void state_transition(const Options *opt, State from, State to);
 /* Determine desired state based on idle time */
 State state_desired(const Options *opt, unsigned long idle_s);
 
-#endif /* STATE_H */
+#endif /* XCOFFEEBREAK_STATE_H */

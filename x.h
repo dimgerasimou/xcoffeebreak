@@ -1,5 +1,5 @@
-#ifndef X_H
-#define X_H
+#ifndef XCOFFEEBREAK_X_H
+#define XCOFFEEBREAK_X_H
 
 typedef struct X11 X11;
 
@@ -9,7 +9,7 @@ typedef struct X11 X11;
  * Returns an initialized structure on success,
  * exits on failiure.
  */
-X11* x11_init(void);
+X11 *x11_init(void);
 
 /* Close and free X11 structure (safe to call with NULL). */
 void x11_cleanup(X11 *x);
@@ -21,4 +21,4 @@ void x11_cleanup(X11 *x);
  */
 unsigned long x11_idle_ms(X11 *x);
 
-#endif /* X_H */
+#endif /* XCOFFEEBREAK_X_H */

@@ -1,5 +1,4 @@
 #include <errno.h>
-#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,7 +46,7 @@ parseul(unsigned long *n, const char *s)
 	errno = 0;
 	v = strtoul(s, &end, 10);
 
-	if (errno != 0 || end == s || *end != '\0' || v > ULONG_MAX)
+	if (errno != 0 || end == s || *end != '\0')
 		return -1;
 
 	*n = (unsigned long)v;
@@ -174,7 +173,7 @@ args_argv(Options *o, const int argc, char *argv[])
 static int
 args_validate(Options *o)
 {
-	if (o->lock_s <= 0 || o->off_s <= 0 || o->suspend_s <= 0) {
+	if (o->lock_s == 0 || o->off_s == 0 || o->suspend_s == 0) {
 		warn("timeouts must be > 0");
 		return -1;
 	}
@@ -214,7 +213,8 @@ args_set(Options *o, const int argc, char *argv[])
 }
 
 void
-args_free(Options *o) {
+args_free(Options *o)
+{
 	free(o->lock_cmd);
 	free(o->off_cmd);
 	free(o->suspend_cmd);

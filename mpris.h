@@ -1,5 +1,5 @@
-#ifndef MPRIS_H
-#define MPRIS_H
+#ifndef XCOFFEEBREAK_MPRIS_H
+#define XCOFFEEBREAK_MPRIS_H
 
 #include <stdbool.h>
 
@@ -13,7 +13,7 @@ typedef struct Mpris Mpris;
  * Returns an initialized structure on success,
  * NULL on failiure.
  */
-Mpris* mpris_init(bool verbose);
+Mpris *mpris_init(bool verbose);
 
 /* Close and free an MPRIS handle (safe to call with NULL). */
 void mpris_cleanup(Mpris *m);
@@ -29,4 +29,4 @@ int mpris_poll(Mpris *m, unsigned int timeout_ms);
 /* True if any tracked player is in PlaybackStatus == "Playing". */
 bool mpris_is_playing(const Mpris *m);
 
-#endif /* MPRIS_H */
+#endif /* XCOFFEEBREAK_MPRIS_H */

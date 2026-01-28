@@ -1,5 +1,5 @@
-#ifndef ARGS_H
-#define ARGS_H
+#ifndef XCOFFEBREAK_ARGS_H
+#define XCOFFEBREAK_ARGS_H
 
 #include <stdbool.h>
 
@@ -26,4 +26,4 @@ int args_set(Options *o, const int argc, char *argv[]);
 /* Frees the alloced data and sets everything to 0 */
 void args_free(Options *o);
 
-#endif
+#endif /* XCOFFEBREAK_ARGS_H */
