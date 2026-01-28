@@ -13,6 +13,8 @@
 #include "utils.h"
 #include "args.h"
 
+#define X11_IDLE_JITTER_MS 250
+
 static volatile sig_atomic_t g_running = 1;
 
 typedef enum {
@@ -176,6 +178,7 @@ main(int argc, char *argv[])
 	 */
 	unsigned long baseline_idle_ms = x11_idle_ms(dpy, xss);
 	int last_playing = (m.conn) ? mpris_is_playing(&m) : 0;
+	unsigned long last_raw_idle = baseline_idle_ms;
 
 	while (g_running) {
 		/* Block up to POLL_MS, but wake immediately on MPRIS signal */
@@ -191,11 +194,17 @@ main(int argc, char *argv[])
 
 		int playing = (m.conn) ? mpris_is_playing(&m) : 0;
 
-		/* Reset baseline ONLY on actual user activity */
-		if (raw_idle < baseline_idle_ms) {
+		/* Reset baseline ONLY on actual user activity.
+		 * XScreenSaver idle can jitter slightly; ignore small backward jumps. */
+		if (raw_idle + X11_IDLE_JITTER_MS < last_raw_idle) {
 			baseline_idle_ms = raw_idle;
-			st = ST_ACTIVE;
+			if (st != ST_ACTIVE) {
+				verbose(opt.verbose, "%s -> %s (%s)",
+				        state_name(st), state_name(ST_ACTIVE), "user activity");
+				st = ST_ACTIVE;
+			}
 		}
+		last_raw_idle = raw_idle;
 
 		/* On inhibit START: update baseline to prevent instant lock */
 		if (playing && !last_playing) {
@@ -218,6 +227,12 @@ main(int argc, char *argv[])
 		long eff_idle_s = (long)(eff_idle / 1000UL);
 
 		State want = state_desired(&opt, eff_idle_s);
+
+		/* If we moved backward (e.g., baseline reset), just update state (no actions). */
+		if (want < st)
+			st = want;
+
+		/* Forward transitions execute actions once per threshold crossing. */
 		if (want > st) {
 			state_transition(&opt, st, want);
 			st = want;

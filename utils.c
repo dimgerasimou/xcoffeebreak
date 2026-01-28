@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "utils.h"
 
@@ -46,11 +47,19 @@ void
 verbose(const unsigned int v, const char *fmt, ...)
 {
 	va_list ap;
+	time_t now;
+	struct tm tm;
 
 	if (!v)
 		return;
 
-	fputs("xcoffeebreak: [VERBOSE] ", stderr);
+	now = time(NULL);
+	if (now == (time_t)-1 || !localtime_r(&now, &tm))
+		die("failed to populate struct tm:");
+
+	fprintf(stderr, "xcoffeebreak: [VERBOSE] [%04d-%02d-%02d %02d:%02d:%02d] ",
+	        tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+	        tm.tm_hour, tm.tm_min, tm.tm_sec);
 
 	va_start(ap, fmt);
 	vfprintf(stderr, fmt, ap);
