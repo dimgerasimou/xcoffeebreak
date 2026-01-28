@@ -75,13 +75,13 @@ usage(void)
 	      "--suspend_cmd       Set suspend command\n"
 	      "\n"
 	      "Defaults:\n"
-	      "  lock_s      300\n"
+	      "  lock_s      900  (15 min)\n"
+	      "  off_s       1800 (30 min)\n"
+	      "  suspend_s   2700 (45 min)\n"
 	      "  lock_cmd    slock\n"
-	      "  off_s       420\n"
 	      "  off_cmd     xset dpms force off\n"
-	      "  suspend_s   900\n"
 	      "  suspend_cmd systemctl suspend\n"
-	      "  poll_ms     500\n",
+	      "  poll_ms     1000\n",
 	      stderr);
 
 }
