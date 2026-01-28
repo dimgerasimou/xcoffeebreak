@@ -15,7 +15,15 @@ typedef struct {
 	char          *suspend_cmd;
 } Options;
 
+/*
+ * Initalizes options with defaults, sets the cmdline
+ * options, and validates the structure.
+ *
+ * Returns 0 on success, -1 on failure.
+ */
 int args_set(Options *o, const int argc, char *argv[]);
+
+/* Frees the alloced data and sets everything to 0 */
 void args_free(Options *o);
 
 #endif

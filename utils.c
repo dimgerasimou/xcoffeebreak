@@ -7,29 +7,12 @@
 #include "utils.h"
 
 void
-warn(const char *fmt, ...)
-{
-	va_list ap;
-	int saved_errno = errno;
-
-	fputs("xcoffeebreak: ", stderr);
-
-	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
-	va_end(ap);
-
-	if (fmt[0] && fmt[strlen(fmt) - 1] == ':')
-		fprintf(stderr, " %s", strerror(saved_errno));
-	fputc('\n', stderr);
-}
-
-void
 die(const char *fmt, ...)
 {
 	va_list ap;
 	int saved_errno = errno;
 
-	fputs("xcoffeebreak: ", stderr);
+	fputs("xcoffeebreak: [FATAL] ", stderr);
 
 	va_start(ap, fmt);
 	vfprintf(stderr, fmt, ap);
@@ -44,7 +27,24 @@ die(const char *fmt, ...)
 }
 
 void
-verbose(const unsigned int v, const char *fmt, ...)
+warn(const char *fmt, ...)
+{
+	va_list ap;
+	int saved_errno = errno;
+
+	fputs("xcoffeebreak: [WARN] ", stderr);
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+
+	if (fmt[0] && fmt[strlen(fmt) - 1] == ':')
+		fprintf(stderr, " %s", strerror(saved_errno));
+	fputc('\n', stderr);
+}
+
+void
+verbose(const bool v, const char *fmt, ...)
 {
 	va_list ap;
 	time_t now;
