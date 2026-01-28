@@ -8,7 +8,7 @@
 #include "mpris.h"
 #include "utils.h"
 
-#define MPRIS_FALLBACK_POLL_S 10000 /* 0 = disabled */
+#define MPRIS_FALLBACK_POLL_S 10    /* 0 = disabled */
 #define MPRIS_STARVATION_MS   5000  /* force re-sync if no dbus activity */
 #define DBUS_CALL_TIMEOUT_MS  200   /* Timeout for blocking DBus calls (ms) */
 
@@ -339,8 +339,11 @@ initial_sync_players(Mpris *m)
 
 		if (name && strncmp(name, "org.mpris.MediaPlayer2.", 23) == 0) {
 			Player *p = player_find(m, name);
-			if (!p)
+			if (!p) {
 				p = player_add(m, name);
+				if (!p)
+					continue;
+			}
 
 			int playing = 0;
 			if (p && dbus_call_get_playbackstatus(m, name, &playing) == 0)
@@ -378,8 +381,10 @@ handle_properties_changed(Mpris *m, DBusMessage *msg)
 		return;
 
 	Player *p = player_find(m, sender);
-	if (!p) p = player_add(m, sender);
-	if (!p) return;
+	if (!p)
+		p = player_add(m, sender);
+	if (!p)
+		return;
 
 	DBusMessageIter it;
 	if (!dbus_message_iter_init(msg, &it)) return;
