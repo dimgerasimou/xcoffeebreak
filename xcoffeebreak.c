@@ -14,27 +14,27 @@
 static volatile sig_atomic_t g_running = 1;
 
 /* Forward declarations */
-static void cleanup(Options *opt, Mpris *m);
-static void setup(Options *opt, StateManager *sm, Mpris **m);
+static void cleanup(Options *opt, X11 *x, Mpris *m);
+static void init(Options *opt, X11 **x, StateManager *sm, Mpris **m);
 static void signals_init(void);
 static void poll(Mpris **m, unsigned int timeout_ms);
 static void sighandler(int sig);
 
 void
-cleanup(Options *opt, Mpris *m)
+cleanup(Options *opt, X11 *x, Mpris *m)
 {
 	args_free(opt);
 	mpris_close(m);
-	x11_cleanup();
+	x11_cleanup(x);
 }
 
 void
-setup(Options *opt, StateManager *sm, Mpris **m)
+init(Options *opt, X11 **x, StateManager *sm, Mpris **m)
 {
 	signals_init();
-	x11_init();
+	*x = x11_init();
 	mpris_open(m, opt->verbose);
-	state_manager_init(sm, x11_idle_ms());
+	state_manager_init(sm, x11_idle_ms(*x));
 }
 
 void
@@ -88,11 +88,12 @@ main(int argc, char *argv[])
 	Options opt;
 	StateManager sm;
 	Mpris *m = NULL;
+	X11 *x = NULL;
 
 	if (args_set(&opt, argc, argv))
 		return 1;
 
-	setup(&opt, &sm, &m);
+	init(&opt, &x, &sm, &m);
 
 	while (g_running) {
 		State st;
@@ -101,11 +102,11 @@ main(int argc, char *argv[])
 
 		/* Check for suspend/resume */
 		if (state_manager_check_suspend(&sm)) {
-			state_manager_handle_resume(&sm, x11_idle_ms(), opt.verbose);
+			state_manager_handle_resume(&sm, x11_idle_ms(x), opt.verbose);
 			continue;
 		}
 
-		st = state_manager_update(&sm, &opt, x11_idle_ms(), mpris_is_playing(m));
+		st = state_manager_update(&sm, &opt, x11_idle_ms(x), mpris_is_playing(m));
 
 		/* Forward transitions execute commands */
 		if (st > sm.current) {
@@ -114,6 +115,6 @@ main(int argc, char *argv[])
 		}
 	}
 
-	cleanup(&opt, m);
+	cleanup(&opt, x, m);
 	return 0;
 }

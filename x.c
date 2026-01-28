@@ -4,35 +4,50 @@
 #include "utils.h"
 #include "x.h"
 
-static Display          *dpy;
-static XScreenSaverInfo *info;
+typedef struct {
+	Display *dpy;
+	XScreenSaverInfo *info;
+} X11;
 
-unsigned long
-x11_idle_ms(void)
-{
-	if (!info)
-		return 0;
-
-	XScreenSaverQueryInfo(dpy, DefaultRootWindow(dpy), info);
-	return info->idle;
-}
-
-void
+X11 *
 x11_init(void)
 {
-	dpy = XOpenDisplay(NULL);
-	if (!dpy)
+	X11 *x;
+
+	x = ecalloc(1, sizeof(&x));
+
+	x->dpy = XOpenDisplay(NULL);
+	if (!x->dpy)
 		die("[X11] cannot open X display");
 
-	info = XScreenSaverAllocInfo();
-	if (!info)
+	x->info = XScreenSaverAllocInfo();
+	if (!x->info)
 		die("[X11] XScreenSaverAllocInfo failed");
 
+	return x;
 }
 
 void
-x11_cleanup(void)
+x11_cleanup(X11 *x)
 {
-        XFree(info);
-	XCloseDisplay(dpy);
+	if (!x)
+		return;
+
+	if (x->info)
+		XFree(x->info);
+
+	if (x->dpy)
+		XCloseDisplay(x->dpy);
+
+	free(x);
+}
+
+unsigned long
+x11_idle_ms(X11 *x)
+{
+	if (!x || !x->dpy || !x->info)
+		die("[X11] Connection lost");
+
+	XScreenSaverQueryInfo(x->dpy, DefaultRootWindow(x->dpy), x->info);
+	return x->info->idle;
 }

@@ -1,10 +1,10 @@
 #ifndef X_H
 #define X_H
 
-unsigned long x11_idle_ms(void);
+typedef struct X11 X11;
 
-void x11_init(void);
-
-void x11_cleanup(void);
+X11* x11_init(void);
+void x11_cleanup(X11 *x);
+unsigned long x11_idle_ms(X11 *x);
 
 #endif /* X_H */
