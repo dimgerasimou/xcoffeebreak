@@ -33,6 +33,14 @@ struct Mpris {
 	Player *players;
 	unsigned int playing_count;       /* number of players in Playing */
 	bool verbose;                     /* for logging */
+
+	struct pollfd *pfds;
+	size_t pfds_cap;
+
+	unsigned long long last_activity_ms;
+#if MPRIS_FALLBACK_POLL_S > 0
+	unsigned long long last_fallback_ms;
+#endif
 };
 
 static Player *
@@ -212,6 +220,27 @@ poll_revents_to_dbus(short revents)
 	if (revents & POLLHUP)
 		flags |= DBUS_WATCH_HANGUP;
 	return flags;
+}
+
+/* ------------------------ poll() helper utilities ------------------------- */
+
+static unsigned long long
+monotonic_ms(void)
+{
+	struct timespec ts;
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+		return 0;
+	return (unsigned long long)ts.tv_sec * 1000ULL +
+	       (unsigned long long)ts.tv_nsec / 1000000ULL;
+}
+
+static size_t
+pfd_index(const struct pollfd *pfds, size_t nfds, int fd)
+{
+	for (size_t i = 0; i < nfds; i++)
+		if (pfds[i].fd == fd)
+			return i;
+	return (size_t)-1;
 }
 
 /* --------------------------- MPRIS DBus helpers -------------------------- */
@@ -529,6 +558,7 @@ mpris_init(bool verbose)
 		if (m->conn)
 			dbus_connection_unref(m->conn);
 
+		free(m->pfds);
 		free(m->watches);
 
 		while (m->players) {
@@ -551,6 +581,10 @@ mpris_cleanup(Mpris *m)
 {
 	if (!m)
 		return;
+
+	free(m->pfds);
+	m->pfds = NULL;
+	m->pfds_cap = 0;
 
 	while (m->players) {
 		Player *p = m->players;
@@ -597,175 +631,130 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 
 	if (mpris_check_connection(m) < 0)
 		return -1;
-	
-	/* Allocate pollfd array dynamically based on number of watches */
-	struct pollfd *pfds = NULL;
+
+	/* ---------- build pollfd set (unique fds, OR'd events) ---------- */
+
+	struct pollfd *pfds = m->pfds;
 	size_t nfds = 0;
-	size_t pfds_cap = 0;
-	static unsigned long long last_activity_ms = 0;
+	size_t cap  = m->pfds_cap;
 
-	/* ----------- normal DBus watch-based polling ----------- */
-
-	/* First pass: determine unique fds and allocate array */
 	for (size_t i = 0; i < m->nwatches; i++) {
 		DBusWatch *w = m->watches[i].watch;
 		if (!dbus_watch_get_enabled(w))
 			continue;
 
-		int fd = m->watches[i].fd;
-		
-		/* Check if we already have this fd */
-		int found = 0;
-		for (size_t k = 0; k < nfds; k++) {
-			if (pfds && pfds[k].fd == fd) {
-				found = 1;
-				break;
-			}
-		}
-		
-		if (!found) {
-			/* Need to expand array */
-			if (nfds >= pfds_cap) {
-				size_t new_cap = pfds_cap ? pfds_cap * 2 : 16;
-				struct pollfd *new_pfds = realloc(pfds, new_cap * sizeof(*new_pfds));
-				if (!new_pfds) {
-					warn("[MPRIS] realloc failed for pollfd array:");
-					free(pfds);
-					return -1;
-				}
-				pfds = new_pfds;
-				pfds_cap = new_cap;
-			}
-			
-			pfds[nfds].fd = fd;
-			pfds[nfds].events = 0;
-			pfds[nfds].revents = 0;
-			nfds++;
-		}
-	}
-	
-	/* Second pass: accumulate events for each fd */
-	for (size_t i = 0; i < m->nwatches; i++) {
-		DBusWatch *w = m->watches[i].watch;
-		if (!dbus_watch_get_enabled(w))
+		const int   fd = m->watches[i].fd;
+		const short ev = dbus_flags_to_poll(dbus_watch_get_flags(w));
+
+		size_t idx = pfd_index(pfds, nfds, fd);
+		if (idx != (size_t)-1) {
+			pfds[idx].events |= ev;
 			continue;
-
-		int fd = m->watches[i].fd;
-		unsigned int wflags = dbus_watch_get_flags(w);
-		short events = dbus_flags_to_poll(wflags);
-
-		/* Find this fd in our array and OR in the events */
-		for (size_t k = 0; k < nfds; k++) {
-			if (pfds[k].fd == fd) {
-				pfds[k].events |= events;
-				break;
-			}
 		}
+
+		if (nfds == cap) {
+			size_t ncap = cap ? cap * 2 : 16;
+			struct pollfd *np = realloc(pfds, ncap * sizeof(*np));
+			if (!np) {
+				warn("[MPRIS] realloc failed for pollfd array:");
+				return -1;
+			}
+			pfds = np;
+			cap = ncap;
+			m->pfds = pfds;
+			m->pfds_cap = cap;
+		}
+
+		pfds[nfds].fd = fd;
+		pfds[nfds].events = ev;
+		pfds[nfds].revents = 0;
+		nfds++;
 	}
 
 	int pret = poll(pfds, (nfds_t)nfds, (int)timeout_ms);
 	if (pret < 0) {
 		if (errno != EINTR) {
 			warn("[MPRIS] poll failed:");
-			free(pfds);
 			return -1;
 		}
-		/* Interrupted by signal: treat as no events. */
-		pret = 0;
+		pret = 0; /* treat EINTR as "no events" */
 	}
 
-	/* For each watch, call dbus_watch_handle with matching revents for its fd
-	 * BUT only pass flags that this specific watch requested */
-	for (size_t i = 0; i < m->nwatches; i++) {
-		DBusWatch *w = m->watches[i].watch;
-		if (!dbus_watch_get_enabled(w)) continue;
+	/* ---------- feed events back into DBus watches ---------- */
 
-		int fd = m->watches[i].fd;
-		unsigned int wflags = dbus_watch_get_flags(w);
+	if (pret > 0) {
+		for (size_t i = 0; i < m->nwatches; i++) {
+			DBusWatch *w = m->watches[i].watch;
+			if (!dbus_watch_get_enabled(w))
+				continue;
 
-		/* Find revents for this fd */
-		short revents = 0;
-		for (size_t k = 0; k < nfds; k++) {
-			if (pfds[k].fd == fd) { 
-				revents = pfds[k].revents; 
-				break; 
-			}
-		}
+			const int fd = m->watches[i].fd;
+			const size_t idx = pfd_index(pfds, nfds, fd);
+			if (idx == (size_t)-1)
+				continue;
 
-		if (revents) {
-			/* Convert revents to dbus flags */
-			unsigned int all_flags = poll_revents_to_dbus(revents);
-			
-			/* Mask to only flags this watch cares about */
-			unsigned int watch_events = dbus_flags_to_poll(wflags);
-			unsigned int masked_flags = 0;
-			
-			if ((watch_events & POLLIN) && (revents & POLLIN))
-				masked_flags |= DBUS_WATCH_READABLE;
-			if ((watch_events & POLLOUT) && (revents & POLLOUT))
-				masked_flags |= DBUS_WATCH_WRITABLE;
-			if (revents & (POLLERR | POLLHUP))
-				masked_flags |= (all_flags & (DBUS_WATCH_ERROR | DBUS_WATCH_HANGUP));
-			
-			if (masked_flags) {
-				dbus_watch_handle(w, masked_flags);
-			}
+			const short revents = pfds[idx].revents;
+			if (!revents)
+				continue;
+
+			const unsigned int wflags    = dbus_watch_get_flags(w);
+			const unsigned int all_flags = poll_revents_to_dbus(revents);
+
+			/*
+			 * Only deliver READABLE/WRITABLE if the watch asked for them.
+			 * Always deliver ERROR/HANGUP when present.
+			 */
+			unsigned int masked =
+			    (all_flags & (DBUS_WATCH_ERROR | DBUS_WATCH_HANGUP)) |
+			    (all_flags & wflags);
+
+			if (masked)
+				dbus_watch_handle(w, masked);
 		}
 	}
-	
-	free(pfds);
 
-	/* Read queued data and handle signals */
+	/* ---------- drain + dispatch ---------- */
+
 	dbus_connection_read_write(m->conn, 0);
+	const size_t nmsg = dispatch_all_messages(m);
 
-	size_t nmsg = dispatch_all_messages(m);
+	/* ---------- starvation guard + optional fallback ---------- */
 
-	/* ----------- watch starvation guard ----------- */
-	struct timespec ats;
-	if (clock_gettime(CLOCK_MONOTONIC, &ats) == 0) {
-		unsigned long long now_ms =
-		    (unsigned long long)ats.tv_sec * 1000ULL +
-		    (unsigned long long)ats.tv_nsec / 1000000ULL;
-
-		if (last_activity_ms == 0)
-			last_activity_ms = now_ms;
+	const unsigned long long now_ms = monotonic_ms();
+	if (now_ms) {
+		if (m->last_activity_ms == 0)
+			m->last_activity_ms = now_ms;
 
 		if (pret > 0 || nmsg > 0) {
-			last_activity_ms = now_ms;
-		} else if (now_ms - last_activity_ms >= (unsigned long long)MPRIS_STARVATION_MS) {
-			/* If we didn't see any DBus activity for a while, force a re-scan. */
+			m->last_activity_ms = now_ms;
+		} else if (now_ms - m->last_activity_ms >= (unsigned long long)MPRIS_STARVATION_MS) {
 			initial_sync_players(m);
 			dbus_connection_read_write(m->conn, 0);
 			(void)dispatch_all_messages(m);
-			last_activity_ms = now_ms;
+			m->last_activity_ms = now_ms;
 		}
-	}
-	
+
 #if MPRIS_FALLBACK_POLL_S > 0
-	static unsigned long long last_fallback_ms = 0;
-	/* ----------- optional fallback polling (monotonic) ----------- */
-	struct timespec ts;
-	if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-		unsigned long long now_ms =
-		    (unsigned long long)ts.tv_sec * 1000ULL +
-		    (unsigned long long)ts.tv_nsec / 1000000ULL;
+		if (m->last_fallback_ms == 0)
+			m->last_fallback_ms = now_ms;
 
-		if (last_fallback_ms == 0)
-			last_fallback_ms = now_ms;
-
-		if (now_ms - last_fallback_ms >=
+		if (now_ms - m->last_fallback_ms >=
 		    (unsigned long long)MPRIS_FALLBACK_POLL_S * 1000ULL) {
 
-			last_fallback_ms = now_ms;
+			m->last_fallback_ms = now_ms;
 
-			/* re-sync PlaybackStatus for all known players */
 			for (Player *p = m->players; p; p = p->next) {
 				int playing = 0;
 				if (dbus_call_get_playbackstatus(m, p->name, &playing) == 0)
 					player_set_playing(m, p, playing);
 			}
 		}
-	}
 #endif
+	}
+
+	/* Persist buffer back to the handle (in case we never grew it). */
+	m->pfds = pfds;
+	m->pfds_cap = cap;
+
 	return 0;
 }
