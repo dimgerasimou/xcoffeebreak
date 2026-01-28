@@ -5,26 +5,33 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <X11/Xlib.h>
-#include <X11/extensions/scrnsaver.h>
-
 #include "args.h"
 #include "mpris.h"
 #include "state.h"
 #include "utils.h"
+#include "x.h"
 
 static volatile sig_atomic_t g_running = 1;
 
 /* Forward declarations */
-static void           setup_signals(void);
-static Display       *x11_init(XScreenSaverInfo **xss_out);
+static void           signals_init(void);
 static void           mpris_init_or_warn(Mpris *m, bool verbose);
-static unsigned long  x11_idle_ms(Display *dpy, XScreenSaverInfo *info);
 static void           handle_poll(Mpris *m, unsigned int timeout_ms);
 static void           sighandler(int sig);
 
 static void
-setup_signals(void)
+setup(Options *opt, StateManager *sm, Mpris *m)
+{
+	signals_init();
+	x11_init();
+
+	mpris_init_or_warn(m, opt->verbose);
+
+	state_manager_init(sm, x11_idle_ms());
+}
+
+static void
+signals_init(void)
 {
 	/* Setup signal handlers FIRST, before any fork() calls */
 	struct sigaction sa;
@@ -41,21 +48,6 @@ setup_signals(void)
 	sigaction(SIGCHLD, &sachld, NULL);
 }
 
-static Display *
-x11_init(XScreenSaverInfo **xss_out)
-{
-	Display *dpy = XOpenDisplay(NULL);
-	if (!dpy)
-		die("[X11] cannot open X display");
-
-	XScreenSaverInfo *xss = XScreenSaverAllocInfo();
-	if (!xss)
-		die("[X11] XScreenSaverAllocInfo failed");
-
-	*xss_out = xss;
-	return dpy;
-}
-
 static void
 mpris_init_or_warn(Mpris *m, bool verbose)
 {
@@ -63,16 +55,6 @@ mpris_init_or_warn(Mpris *m, bool verbose)
 		warn("[MPRIS] init failed (running without inhibit)");
 		memset(m, 0, sizeof(*m));
 	}
-}
-
-static unsigned long
-x11_idle_ms(Display *dpy, XScreenSaverInfo *info)
-{
-	if (!info)
-		return 0;
-
-	XScreenSaverQueryInfo(dpy, DefaultRootWindow(dpy), info);
-	return info->idle;
 }
 
 static void
@@ -105,33 +87,25 @@ sighandler(int sig)
 int
 main(int argc, char *argv[])
 {
-	XScreenSaverInfo *xss;
 	Options opt;
 	StateManager sm;
-	Display *dpy;
 	Mpris m;
 
 	if (args_set(&opt, argc, argv))
 		return 1;
 
-	setup_signals();
-
-	dpy = x11_init(&xss);
-
-	mpris_init_or_warn(&m, opt.verbose);
-
-	state_manager_init(&sm, x11_idle_ms(dpy, xss));
+	setup(&opt, &sm, &m);
 
 	while (g_running) {
 		handle_poll(&m, opt.poll_ms);
 
 		/* Check for suspend/resume */
 		if (state_manager_check_suspend(&sm)) {
-			state_manager_handle_resume(&sm, x11_idle_ms(dpy, xss), opt.verbose);
+			state_manager_handle_resume(&sm, x11_idle_ms(), opt.verbose);
 			continue;
 		}
 
-		unsigned long raw_idle = x11_idle_ms(dpy, xss);
+		unsigned long raw_idle = x11_idle_ms();
 		bool playing = (m.conn) ? mpris_is_playing(&m) : false;
 
 		State desired = state_manager_update(&sm, &opt, raw_idle, playing);
@@ -144,7 +118,6 @@ main(int argc, char *argv[])
 	}
 
 	args_free(&opt);
-	XFree(xss);
-	XCloseDisplay(dpy);
+	x11_cleanup();
 	return 0;
 }

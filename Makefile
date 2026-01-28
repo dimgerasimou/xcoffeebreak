@@ -8,7 +8,7 @@ BINDIR   := bin
 OBJDIR   := obj
 
 BIN      := xcoffeebreak
-SRCS     := xcoffeebreak.c mpris.c utils.c args.c state.c
+SRCS     := xcoffeebreak.c mpris.c utils.c args.c state.c x.c
 OBJS     := $(SRCS:%.c=$(OBJDIR)/%.o)
 DEPS     := $(OBJS:.o=.d)
 TARGET   := $(BINDIR)/$(BIN)
