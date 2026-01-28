@@ -24,7 +24,7 @@ void
 cleanup(Options *opt, X11 *x, Mpris *m)
 {
 	args_free(opt);
-	mpris_close(m);
+	mpris_cleanup(m);
 	x11_cleanup(x);
 }
 
@@ -33,7 +33,7 @@ init(Options *opt, X11 **x, StateManager *sm, Mpris **m)
 {
 	signals_init();
 	*x = x11_init();
-	mpris_open(m, opt->verbose);
+	*m = mpris_init(opt->verbose);
 	state_manager_init(sm, x11_idle_ms(*x));
 }
 
@@ -61,7 +61,7 @@ poll(Mpris **m, unsigned int timeout_ms)
 	if (m && *m) {
 		if (mpris_poll(*m, timeout_ms) < 0) {
 			warn("[MPRIS] Lost DBus connection, running without inhibit");
-			mpris_close(*m);
+			mpris_cleanup(*m);
 			*m = NULL;
 			return;
 		}

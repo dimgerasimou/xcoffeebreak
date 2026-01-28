@@ -13,10 +13,10 @@ typedef struct Mpris Mpris;
  *
  * verbose: non-zero enables logging via utils.h helpers.
  */
-int  mpris_open(Mpris **out, bool verbose);
+Mpris* mpris_init(bool verbose);
 
 /** Close and free an MPRIS handle (safe to call with NULL). */
-void mpris_close(Mpris *m);
+void mpris_cleanup(Mpris *m);
 
 /**
  * Poll DBus for MPRIS activity.

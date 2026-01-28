@@ -92,14 +92,13 @@ player_remove(Mpris *m, const char *name)
 }
 
 static void
-set_player_playing(Mpris *m, Player *p, bool playing)
+player_set_playing(Mpris *m, Player *p, bool playing)
 {
 	if (!p)
 		return;
 	if (p->is_playing == playing)
 		return;
 
-	/* Verbose logging for state changes */
 	if (m->verbose) {
 		verbose(1, "[MPRIS] %s %s -> %s", 
 		        p->name,
@@ -113,7 +112,6 @@ set_player_playing(Mpris *m, Player *p, bool playing)
 	else if (m->playing_count > 0)
 		m->playing_count--;
 }
-
 
 static int
 watch_index_by_ptr(Mpris *m, DBusWatch *w)
@@ -142,7 +140,7 @@ watches_reserve(Mpris *m, size_t need)
 }
 
 static dbus_bool_t
-add_watch(DBusWatch *watch, void *data)
+watch_add(DBusWatch *watch, void *data)
 {
 	Mpris *m = (Mpris *)data;
 	if (!dbus_watch_get_enabled(watch))
@@ -152,7 +150,7 @@ add_watch(DBusWatch *watch, void *data)
 		return TRUE;
 
 	if (watches_reserve(m, m->nwatches + 1) < 0) {
-		warn("[MPRIS] out of memory (add_watch)");
+		warn("[MPRIS] out of memory (watch_add)");
 		return FALSE;
 	}
 
@@ -164,7 +162,7 @@ add_watch(DBusWatch *watch, void *data)
 }
 
 static void
-remove_watch(DBusWatch *watch, void *data)
+watch_remove(DBusWatch *watch, void *data)
 {
 	Mpris *m = (Mpris *)data;
 	int idx = watch_index_by_ptr(m, watch);
@@ -177,7 +175,7 @@ remove_watch(DBusWatch *watch, void *data)
 }
 
 static void
-toggle_watch(DBusWatch *watch, void *data)
+watch_toggle(DBusWatch *watch, void *data)
 {
 	/* Nothing to do here: we consult enabled/flags at poll time. */
 	(void)watch;
@@ -313,7 +311,7 @@ initial_sync_players(Mpris *m)
 
 			int playing = 0;
 			if (p && dbus_call_get_playbackstatus(m, name, &playing) == 0)
-				set_player_playing(m, p, playing);
+				player_set_playing(m, p, playing);
 		}
 
 		dbus_message_iter_next(&arr);
@@ -383,7 +381,7 @@ handle_properties_changed(Mpris *m, DBusMessage *msg)
 			saw_status = 1;
 			const char *status = NULL;
 			if (read_variant_string(&entry, &status)) {
-				set_player_playing(m, p, streq(status, "Playing"));
+				player_set_playing(m, p, streq(status, "Playing"));
 			}
 		}
 
@@ -395,7 +393,7 @@ handle_properties_changed(Mpris *m, DBusMessage *msg)
 	if (!saw_status) {
 		int playing = 0;
 		if (dbus_call_get_playbackstatus(m, sender, &playing) == 0)
-			set_player_playing(m, p, playing);
+			player_set_playing(m, p, playing);
 	}
 }
 
@@ -431,7 +429,7 @@ handle_name_owner_changed(Mpris *m, DBusMessage *msg)
 
 	int playing = 0;
 	if (dbus_call_get_playbackstatus(m, name, &playing) == 0) {
-		set_player_playing(m, p, playing);
+		player_set_playing(m, p, playing);
 	}
 }
 
@@ -494,7 +492,7 @@ mpris_setup(Mpris *m, bool verbose)
 		return -1;
 	}
 
-	if (!dbus_connection_set_watch_functions(m->conn, add_watch, remove_watch, toggle_watch, m, NULL)) {
+	if (!dbus_connection_set_watch_functions(m->conn, watch_add, watch_remove, watch_toggle, m, NULL)) {
 		warn("[MPRIS] set_watch_functions failed");
 		return -1;
 	}
@@ -511,19 +509,16 @@ mpris_setup(Mpris *m, bool verbose)
 
 /* ------------------------------ MPRIS public ----------------------------- */
 
-int
-mpris_open(Mpris **out, bool verbose)
+Mpris *
+mpris_init(bool verbose)
 {
 	Mpris *m;
-
-	if (out)
-		*out = NULL;
 
 	m = calloc(1, sizeof(*m));
 
 	if (!m) {
 		warn("[MPRIS] calloc failed, running without inhibit");
-		return -1;
+		return NULL;
 	}
 
 	if (mpris_setup(m, verbose) < 0) {
@@ -541,22 +536,18 @@ mpris_open(Mpris **out, bool verbose)
 
 		free(m);
 		warn("[MPRIS] init failed, running without inhibit");
-		*out = NULL;
-		return -1;
+		return NULL;
 	}
 
-	if (out)
-		*out = m;
-	return 0;
+	return m;
 }
 
 void
-mpris_close(Mpris *m)
+mpris_cleanup(Mpris *m)
 {
 	if (!m)
 		return;
 
-	/* free players */
 	while (m->players) {
 		Player *p = m->players;
 		m->players = p->next;
@@ -758,7 +749,7 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 			for (Player *p = m->players; p; p = p->next) {
 				int playing = 0;
 				if (dbus_call_get_playbackstatus(m, p->name, &playing) == 0)
-					set_player_playing(m, p, playing);
+					player_set_playing(m, p, playing);
 			}
 		}
 	}
