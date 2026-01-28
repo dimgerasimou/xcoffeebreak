@@ -24,12 +24,43 @@ typedef enum {
 	ST_SUSPENDED,
 } State;
 
+static int            detect_suspend_resume(unsigned long *last_clock_ms);
 static int            run(const char *cmd);
 static void           sighandler(int sig);
-static State          state_desired(const Options *opt, long idle_s);
+static State          state_desired(const Options *opt, unsigned long idle_s);
 static const char    *state_name(State st);
 static void           state_transition(const Options *opt, State from, State to);
 static unsigned long  x11_idle_ms(Display *dpy, XScreenSaverInfo *info);
+
+int
+detect_suspend_resume(unsigned long *last_clock_ms)
+{
+	/*
+	 * Detect system suspend/resume by monitoring monotonic clock jumps.
+	 * If wall clock time jumps forward significantly more than expected,
+	 * the system likely suspended. Returns 1 if suspend detected, 0 otherwise.
+	 */
+	struct timespec ts;
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+		return 0;
+	
+	unsigned long now_ms = 
+	    (unsigned long)ts.tv_sec * 1000UL +
+	    (unsigned long)ts.tv_nsec / 1000000UL;
+	
+	if (*last_clock_ms == 0) {
+		*last_clock_ms = now_ms;
+		return 0;
+	}
+	
+	/* Check if time jumped forward by more than 5 seconds
+	 * (accounting for potential unsigned wraparound) */
+	unsigned long delta_ms = now_ms - *last_clock_ms;
+	*last_clock_ms = now_ms;
+	
+	/* Suspend detected if more than 5 seconds passed in one poll cycle */
+	return (delta_ms > 5000UL);
+}
 
 int
 run(const char *cmd)
@@ -57,11 +88,11 @@ sighandler(int sig)
 }
 
 State
-state_desired(const Options *opt, long idle_s)
+state_desired(const Options *opt, unsigned long idle_s)
 {
-	if (idle_s >= (long)opt->suspend_s) return ST_SUSPENDED;
-	if (idle_s >= (long)opt->off_s)     return ST_OFF;
-	if (idle_s >= (long)opt->lock_s)    return ST_LOCKED;
+	if (idle_s >= (unsigned long)opt->suspend_s) return ST_SUSPENDED;
+	if (idle_s >= (unsigned long)opt->off_s)     return ST_OFF;
+	if (idle_s >= (unsigned long)opt->lock_s)    return ST_LOCKED;
 	return ST_ACTIVE;
 }
 
@@ -80,6 +111,24 @@ state_name(State st)
 void
 state_transition(const Options *opt, State from, State to)
 {
+	/*
+	 * State transition behavior:
+	 * 
+	 * We only execute actions when moving FORWARD through states
+	 * (ACTIVE -> LOCKED -> OFF -> SUSPENDED). When moving backward
+	 * (e.g., user activity detected), we simply update the state
+	 * variable without executing unlock/wake commands.
+	 * 
+	 * This means:
+	 * - If user is at SUSPENDED and becomes active briefly, then idle
+	 *   again, we won't re-execute lock/off/suspend commands until
+	 *   the idle timer crosses each threshold again from ACTIVE.
+	 * - This prevents command spam and allows external wake mechanisms
+	 *   (like systemd resume) to handle state restoration.
+	 * - The baseline idle time is reset on user activity, so the timer
+	 *   effectively restarts from zero.
+	 */
+	
 	/* Only execute actions when moving forward. */
 	for (int st = (int)from + 1; st <= (int)to; st++) {
 		const char *cmd = NULL;
@@ -137,14 +186,14 @@ main(int argc, char *argv[])
 	if (args_set(&opt, argc, argv))
 		return 1;
 
-	/* Signals */
+	/* Setup signal handlers FIRST, before any fork() calls in run() */
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sighandler;
 	sigaction(SIGINT,  &sa, NULL);
 	sigaction(SIGTERM, &sa, NULL);
 
-	/* Avoid zombie children from non-blocking run_sh() */
+	/* Avoid zombie children from non-blocking run() */
 	struct sigaction sachld;
 	memset(&sachld, 0, sizeof(sachld));
 	sachld.sa_handler = SIG_IGN;
@@ -162,7 +211,7 @@ main(int argc, char *argv[])
 
 	/* MPRIS */
 	Mpris m;
-	if (mpris_init(&m) < 0) {
+	if (mpris_init(&m, opt.verbose) < 0) {
 		warn("MPRIS init failed (running without inhibit)");
 		memset(&m, 0, sizeof(m));
 	}
@@ -170,24 +219,52 @@ main(int argc, char *argv[])
 	State st = ST_ACTIVE;
 
 	/*
-	 * Baseline trick:
+	 * Baseline idle time management:
+	 * 
 	 * effective_idle_ms = max(0, raw_idle_ms - baseline_idle_ms)
+	 * 
 	 * We update baseline when:
-	 *  - user becomes active (raw idle decreased)
-	 *  - inhibit starts (so you don't instantly lock after long playback)
+	 *  1. User becomes active (raw idle decreased significantly)
+	 *  2. Inhibit starts (prevents instant lock after long playback)
+	 *  3. System resumes from suspend (X11 idle might be stale)
+	 * 
+	 * This allows idle time to accumulate naturally while preventing
+	 * spurious timeouts.
 	 */
 	unsigned long baseline_idle_ms = x11_idle_ms(dpy, xss);
 	int last_playing = (m.conn) ? mpris_is_playing(&m) : 0;
 	unsigned long last_raw_idle = baseline_idle_ms;
+	unsigned long last_clock_ms = 0;
 
 	while (g_running) {
 		/* Block up to POLL_MS, but wake immediately on MPRIS signal */
 		if (m.conn) {
-			mpris_poll(&m, (int)opt.poll_ms);
+			mpris_poll(&m, opt.poll_ms);
+			
+			/* Check for DBus connection loss */
+			if (mpris_check_connection(&m) < 0) {
+				warn("Lost DBus connection, running without inhibit");
+				m.conn = NULL;
+			}
 		} else {
-			struct timespec ts = { .tv_sec = opt.poll_ms / 1000,
-			                       .tv_nsec = (opt.poll_ms % 1000) * 1000000L };
+			struct timespec ts = { 
+				.tv_sec = opt.poll_ms / 1000,
+				.tv_nsec = (opt.poll_ms % 1000) * 1000000L 
+			};
 			nanosleep(&ts, NULL);
+		}
+
+		/* Detect suspend/resume - reset baseline if detected */
+		if (detect_suspend_resume(&last_clock_ms)) {
+			unsigned long raw_idle = x11_idle_ms(dpy, xss);
+			baseline_idle_ms = raw_idle;
+			last_raw_idle = raw_idle;
+			if (st != ST_ACTIVE) {
+				verbose(opt.verbose, "%s -> %s (resume from suspend)",
+				        state_name(st), state_name(ST_ACTIVE));
+				st = ST_ACTIVE;
+			}
+			continue;
 		}
 
 		unsigned long raw_idle = x11_idle_ms(dpy, xss);
@@ -199,8 +276,8 @@ main(int argc, char *argv[])
 		if (raw_idle + X11_IDLE_JITTER_MS < last_raw_idle) {
 			baseline_idle_ms = raw_idle;
 			if (st != ST_ACTIVE) {
-				verbose(opt.verbose, "%s -> %s (%s)",
-				        state_name(st), state_name(ST_ACTIVE), "user activity");
+				verbose(opt.verbose, "%s -> %s (user activity)",
+				        state_name(st), state_name(ST_ACTIVE));
 				st = ST_ACTIVE;
 			}
 		}
@@ -223,8 +300,16 @@ main(int argc, char *argv[])
 			continue;
 		}
 
-		unsigned long eff_idle = (raw_idle > baseline_idle_ms) ? (raw_idle - baseline_idle_ms) : 0;
-		long eff_idle_s = (long)(eff_idle / 1000UL);
+		/* Calculate effective idle with overflow protection */
+		unsigned long eff_idle_ms;
+		if (raw_idle >= baseline_idle_ms) {
+			eff_idle_ms = raw_idle - baseline_idle_ms;
+		} else {
+			/* Handle wraparound (unlikely but possible after ~49.7 days) */
+			eff_idle_ms = 0;
+		}
+		
+		unsigned long eff_idle_s = eff_idle_ms / 1000UL;
 
 		State want = state_desired(&opt, eff_idle_s);
 
