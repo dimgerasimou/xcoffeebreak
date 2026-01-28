@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <dbus/dbus.h>
 #include <stdio.h>
 #include <string.h>
 #include <poll.h>
@@ -11,6 +12,28 @@
 #define MPRIS_STARVATION_MS   5000  /* force re-sync if no dbus activity */
 #define DBUS_CALL_TIMEOUT_MS  200   /* Timeout for blocking DBus calls (ms) */
 
+typedef struct Player {
+	char *name;              /* org.mpris.MediaPlayer2.* */
+	bool  is_playing;        /* cached */
+	struct Player *next;
+} Player;
+
+typedef struct WatchEnt {
+	DBusWatch *watch;
+	int fd;
+} WatchEnt;
+
+struct Mpris {
+	DBusConnection *conn;
+
+	WatchEnt *watches;
+	size_t nwatches;
+	size_t cap_watches;
+
+	Player *players;
+	unsigned int playing_count;       /* number of players in Playing */
+	bool verbose;                     /* for logging */
+};
 
 static Player *
 player_find(Mpris *m, const char *name)
@@ -436,12 +459,9 @@ dispatch_all_messages(Mpris *m)
 	return n;
 }
 
-/* ------------------------------ MPRIS public ----------------------------- */
-
-int
-mpris_init(Mpris *m, int verbose)
+static int
+mpris_setup(Mpris *m, bool verbose)
 {
-	memset(m, 0, sizeof(*m));
 	m->verbose = verbose;
 
 	DBusError err;
@@ -489,29 +509,100 @@ mpris_init(Mpris *m, int verbose)
 	return 0;
 }
 
-bool
-mpris_is_playing(const Mpris *m)
-{
-	return m->playing_count > 0;
-}
+/* ------------------------------ MPRIS public ----------------------------- */
 
 int
-mpris_check_connection(Mpris *m)
+mpris_open(Mpris **out, bool verbose)
 {
-	if (!m->conn)
-		return -1;
-		
-	if (!dbus_connection_get_is_connected(m->conn)) {
-		warn("[MPRIS] DBus connection lost");
+	Mpris *m;
+
+	if (out)
+		*out = NULL;
+
+	m = calloc(1, sizeof(*m));
+
+	if (!m) {
+		warn("[MPRIS] calloc failed, running without inhibit");
 		return -1;
 	}
-	
+
+	if (mpris_setup(m, verbose) < 0) {
+		if (m->conn)
+			dbus_connection_unref(m->conn);
+
+		free(m->watches);
+
+		while (m->players) {
+			Player *p = m->players;
+			m->players = p->next;
+			free(p->name);
+			free(p);
+		}
+
+		free(m);
+		warn("[MPRIS] init failed, running without inhibit");
+		*out = NULL;
+		return -1;
+	}
+
+	if (out)
+		*out = m;
 	return 0;
 }
 
 void
+mpris_close(Mpris *m)
+{
+	if (!m)
+		return;
+
+	/* free players */
+	while (m->players) {
+		Player *p = m->players;
+		m->players = p->next;
+		free(p->name);
+		free(p);
+	}
+
+	free(m->watches);
+	m->watches = NULL;
+	m->nwatches = m->cap_watches = 0;
+
+	if (m->conn) {
+		dbus_connection_unref(m->conn);
+		m->conn = NULL;
+	}
+
+	free(m);
+}
+
+bool
+mpris_is_playing(const Mpris *m)
+{
+	if (!m)
+		return false;
+	return m->playing_count > 0;
+}
+
+static int
+mpris_check_connection(Mpris *m)
+{
+	if (!m || !m->conn)
+		return -1;
+	if (!dbus_connection_get_is_connected(m->conn))
+		return -1;
+	return 0;
+}
+
+int
 mpris_poll(Mpris *m, unsigned int timeout_ms)
 {
+	if (!m)
+		return -1;
+
+	if (mpris_check_connection(m) < 0)
+		return -1;
+	
 	/* Allocate pollfd array dynamically based on number of watches */
 	struct pollfd *pfds = NULL;
 	size_t nfds = 0;
@@ -546,7 +637,7 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 				if (!new_pfds) {
 					warn("[MPRIS] realloc failed for pollfd array:");
 					free(pfds);
-					return;
+					return -1;
 				}
 				pfds = new_pfds;
 				pfds_cap = new_cap;
@@ -672,4 +763,5 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 		}
 	}
 #endif
+	return 0;
 }

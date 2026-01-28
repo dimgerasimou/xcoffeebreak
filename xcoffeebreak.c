@@ -14,23 +14,30 @@
 static volatile sig_atomic_t g_running = 1;
 
 /* Forward declarations */
-static void           signals_init(void);
-static void           mpris_init_or_warn(Mpris *m, bool verbose);
-static void           handle_poll(Mpris *m, unsigned int timeout_ms);
-static void           sighandler(int sig);
+static void cleanup(Options *opt, Mpris *m);
+static void setup(Options *opt, StateManager *sm, Mpris **m);
+static void signals_init(void);
+static void poll(Mpris **m, unsigned int timeout_ms);
+static void sighandler(int sig);
 
-static void
-setup(Options *opt, StateManager *sm, Mpris *m)
+void
+cleanup(Options *opt, Mpris *m)
+{
+	args_free(opt);
+	mpris_close(m);
+	x11_cleanup();
+}
+
+void
+setup(Options *opt, StateManager *sm, Mpris **m)
 {
 	signals_init();
 	x11_init();
-
-	mpris_init_or_warn(m, opt->verbose);
-
+	mpris_open(m, opt->verbose);
 	state_manager_init(sm, x11_idle_ms());
 }
 
-static void
+void
 signals_init(void)
 {
 	/* Setup signal handlers FIRST, before any fork() calls */
@@ -48,36 +55,27 @@ signals_init(void)
 	sigaction(SIGCHLD, &sachld, NULL);
 }
 
-static void
-mpris_init_or_warn(Mpris *m, bool verbose)
+void
+poll(Mpris **m, unsigned int timeout_ms)
 {
-	if (mpris_init(m, verbose) < 0) {
-		warn("[MPRIS] init failed (running without inhibit)");
-		memset(m, 0, sizeof(*m));
-	}
-}
-
-static void
-handle_poll(Mpris *m, unsigned int timeout_ms)
-{
-	if (m->conn) {
-		mpris_poll(m, timeout_ms);
-
-		/* Check for DBus connection loss */
-		if (mpris_check_connection(m) < 0) {
+	if (m && *m) {
+		if (mpris_poll(*m, timeout_ms) < 0) {
 			warn("[MPRIS] Lost DBus connection, running without inhibit");
-			m->conn = NULL;
+			mpris_close(*m);
+			*m = NULL;
+			return;
 		}
-	} else {
-		struct timespec ts = {
-			.tv_sec = timeout_ms / 1000,
-			.tv_nsec = (timeout_ms % 1000) * 1000000L
-		};
-		nanosleep(&ts, NULL);
+		return;
 	}
+
+	struct timespec ts = {
+		.tv_sec = timeout_ms / 1000,
+		.tv_nsec = (timeout_ms % 1000) * 1000000L
+	};
+	nanosleep(&ts, NULL);
 }
 
-static void
+void
 sighandler(int sig)
 {
 	(void)sig;
@@ -89,7 +87,7 @@ main(int argc, char *argv[])
 {
 	Options opt;
 	StateManager sm;
-	Mpris m;
+	Mpris *m = NULL;
 
 	if (args_set(&opt, argc, argv))
 		return 1;
@@ -97,7 +95,9 @@ main(int argc, char *argv[])
 	setup(&opt, &sm, &m);
 
 	while (g_running) {
-		handle_poll(&m, opt.poll_ms);
+		State st;
+
+		poll(&m, opt.poll_ms);
 
 		/* Check for suspend/resume */
 		if (state_manager_check_suspend(&sm)) {
@@ -105,19 +105,15 @@ main(int argc, char *argv[])
 			continue;
 		}
 
-		unsigned long raw_idle = x11_idle_ms();
-		bool playing = (m.conn) ? mpris_is_playing(&m) : false;
-
-		State desired = state_manager_update(&sm, &opt, raw_idle, playing);
+		st = state_manager_update(&sm, &opt, x11_idle_ms(), mpris_is_playing(m));
 
 		/* Forward transitions execute commands */
-		if (desired > sm.current) {
-			state_transition(&opt, sm.current, desired);
-			sm.current = desired;
+		if (st > sm.current) {
+			state_transition(&opt, sm.current, st);
+			sm.current = st;
 		}
 	}
 
-	args_free(&opt);
-	x11_cleanup();
+	cleanup(&opt, m);
 	return 0;
 }

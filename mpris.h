@@ -1,39 +1,32 @@
 #ifndef MPRIS_H
 #define MPRIS_H
 
-#include <dbus/dbus.h>
 #include <stdbool.h>
-#include <stdlib.h>
 
-typedef struct Player {
-	char *name;              /* org.mpris.MediaPlayer2.* */
-	bool  is_playing;        /* cached */
-	struct Player *next;
-} Player;
+typedef struct Mpris Mpris;
 
-typedef struct WatchEnt {
-	DBusWatch *watch;
-	int fd;
-} WatchEnt;
+/**
+ * Open an MPRIS/DBus monitor.
+ *
+ * On success, *out is set to a valid handle that must be closed with
+ * mpris_close(). On failure, *out is set to NULL.
+ *
+ * verbose: non-zero enables logging via utils.h helpers.
+ */
+int  mpris_open(Mpris **out, bool verbose);
 
-typedef struct Mpris {
-	DBusConnection *conn;
+/** Close and free an MPRIS handle (safe to call with NULL). */
+void mpris_close(Mpris *m);
 
-	WatchEnt *watches;
-	size_t nwatches;
-	size_t cap_watches;
+/**
+ * Poll DBus for MPRIS activity.
+ *
+ * Returns 0 on success, -1 if the DBus connection is lost (the handle
+ * becomes unusable; caller should close it and continue without inhibit).
+ */
+int  mpris_poll(Mpris *m, unsigned int timeout_ms);
 
-	Player *players;
-	unsigned int playing_count;       /* number of players in Playing */
-	bool verbose;                     /* for logging */
-} Mpris;
-
-void mpris_poll(Mpris *m, unsigned int timeout_ms);
-
+/** True if any tracked player is in PlaybackStatus == "Playing". */
 bool mpris_is_playing(const Mpris *m);
-
-int mpris_init(Mpris *m, int verbose);
-
-int mpris_check_connection(Mpris *m);
 
 #endif /* MPRIS_H */
