@@ -1,5 +1,4 @@
 #include <signal.h>
-#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -38,17 +37,15 @@ init(Options *opt, X11 **x, StateManager *sm, Mpris **m)
 void
 signals_init(void)
 {
-	struct sigaction sa;
-	struct sigaction sachld;
+	struct sigaction sa = {0};
+	struct sigaction sachld = {0};
 
 	/* Setup signal handlers FIRST, before any fork() calls */
-	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sighandler;
 	sigaction(SIGINT,  &sa, NULL);
 	sigaction(SIGTERM, &sa, NULL);
 
 	/* Avoid zombie children from non-blocking fork/exec */
-	memset(&sachld, 0, sizeof(sachld));
 	sachld.sa_handler = SIG_IGN;
 	sachld.sa_flags = SA_NOCLDWAIT;
 	sigaction(SIGCHLD, &sachld, NULL);
