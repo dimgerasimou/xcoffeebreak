@@ -3,9 +3,10 @@ CFLAGS   ?= -Wall -Wextra -Wno-deprecated-declarations -Os
 CPPFLAGS += -MMD -MP
 LDLIBS   ?= -lX11 -lXss
 
-PREFIX   ?= /usr/local
-BINDIR   := bin
-OBJDIR   := obj
+PREFIX    ?= /usr/local
+MANPREFIX ?= ${PREFIX}/share/man
+BINDIR    := bin
+OBJDIR    := obj
 
 BIN      := xcoffeebreak
 SRCS     := xcoffeebreak.c mpris.c utils.c args.c state.c x.c
@@ -55,11 +56,13 @@ clean:
 install: $(TARGET)
 	@$(PRINTF) "$(COLOR_CYAN)Installing $(BIN) at:$(COLOR_RESET) %s\n" "$(DESTDIR)$(PREFIX)/bin/$(BIN)"
 	@install -d $(DESTDIR)$(PREFIX)/bin
+	@install -d $(DESTDIR)$(MANPREFIX)/man1
 	@install -m 755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/$(BIN)
+	@install -m 644 $(BIN).1 $(DESTDIR)$(MANPREFIX)/man1/$(BIN).1
 
 uninstall:
 	@$(PRINTF) "$(COLOR_CYAN)Uninstalling $(BIN) from:$(COLOR_RESET) %s\n" "$(DESTDIR)$(PREFIX)/bin/$(BIN)"
-	@rm -f $(DESTDIR)$(PREFIX)/bin/$(BIN)
+	@rm -f $(DESTDIR)$(PREFIX)/bin/$(BIN) $(DESTDIR)$(MANPREFIX)/man1/$(BIN).1
 
 -include $(DEPS)
 

@@ -1,0 +1,126 @@
+.TH xcoffeebreak 1 "January 2026" "xcoffeebreak" "General Commands Manual"
+.SH NAME
+xcoffeebreak \- idle management daemon for X11 with MPRIS support
+.SH SYNOPSIS
+.B xcoffeebreak
+.RB [ \-\-lock_s
+.IR seconds ]
+.RB [ \-\-off_s
+.IR seconds ]
+.RB [ \-\-suspend_s
+.IR seconds ]
+.RB [ \-\-lock_cmd
+.IR command ]
+.RB [ \-\-off_cmd
+.IR command ]
+.RB [ \-\-suspend_cmd
+.IR command ]
+.RB [ \-\-poll_ms
+.IR milliseconds ]
+.RB [ \-\-verbose ]
+.RB [ \-\-dry_run ]
+.RB [ \-\-help ]
+.SH DESCRIPTION
+.B xcoffeebreak
+is a small X11 idle management daemon. It polls the X server for user
+inactivity and, after configurable timeouts, optionally executes commands to lock the
+session, force the display off, and suspend the system.
+.PP
+xcoffeebreak integrates with MPRIS2 over the user session D-Bus. When any
+compatible media player reports
+.BR PlaybackStatus =\  "Playing" ,
+effective idle time is paused so long-running playback does not trigger a lock
+or suspend. If the D-Bus connection cannot be established, xcoffeebreak runs
+normally without media awareness.
+.PP
+Actions are executed only on forward state transitions
+(ACTIVE \(-> LOCKED \(-> OFF \(-> SUSPENDED).
+User activity returns the daemon to ACTIVE without running commands.
+.PP
+Baseline for idle time is effectively reset on user activity, media playback
+start/stop, and system resume from suspend.
+.SH OPTIONS
+.TP
+.BI \-\-lock_s " seconds"
+Idle time before locking. Default: 900 (15 minutes).
+Must be less than
+.BR \-\-off_s .
+.TP
+.BI \-\-lock_cmd " command"
+Command to lock the screen. Default:
+.BR slock .
+Executed via
+.BR /bin/sh .
+.TP
+.BI \-\-off_s " seconds"
+Idle time before turning off display. Default: 1800 (30 minutes).
+Must be between
+.B \-\-lock_s
+and
+.BR \-\-suspend_s .
+.TP
+.BI \-\-off_cmd " command"
+Command to turn off display. Default:
+.BR "xset dpms force off" .
+.TP
+.BI \-\-suspend_s " seconds"
+Idle time before suspending. Default: 2700 (45 minutes).
+Must be greater than
+.BR \-\-off_s .
+.TP
+.BI \-\-suspend_cmd " command"
+Command to suspend system. Default:
+.BR "systemctl suspend" .
+.TP
+.BI \-\-poll_ms " milliseconds"
+Polling interval. Default: 1000. Minimum: 50.
+.TP
+.B \-\-verbose
+Enable verbose logging with timestamps.
+.TP
+.B \-\-dry_run
+Log actions without executing commands. Use with
+.BR \-\-verbose .
+.TP
+.B \-\-help
+Print usage and exit.
+.SH EXAMPLES
+.TP
+Verbose logging:
+.nf
+xcoffeebreak \-\-verbose
+.fi
+.TP
+Use i3lock:
+.nf
+xcoffeebreak \-\-lock_cmd "i3lock \-c 000000"
+.fi
+.TP
+Custom timeouts:
+.nf
+xcoffeebreak \-\-lock_s 600 \-\-off_s 1200 \-\-suspend_s 1800
+.fi
+.TP
+Disable suspend:
+.nf
+xcoffeebreak \-\-suspend_cmd ""
+.fi
+.TP
+Test configuration:
+.nf
+xcoffeebreak \-\-dry_run \-\-verbose
+.fi
+.SH SIGNALS
+.TP
+.B SIGINT, SIGTERM
+Graceful shutdown
+.TP
+.B SIGCHLD
+Ignored (SA_NOCLDWAIT) to prevent zombies
+.SH SEE ALSO
+.BR X (1),
+.BR xset (1),
+.BR xautolock (1),
+.BR xss-lock (1),
+.BR slock (1),
+.PP
