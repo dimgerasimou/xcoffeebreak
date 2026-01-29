@@ -44,7 +44,7 @@ xcoffeebreak &
 
 ## Features
 
-- **Progressive state management**: Automatically locks → screen off → suspend based on idle time
+- **Progressive state management**: Automatically locks ➝ screen off ➝ suspend based on idle time
 - **MPRIS media player integration**: Prevents locking while music/video is playing
 - **Suspend detection**: Automatically resets idle timers after system resume
 - **Configurable timeouts and commands**: Customize lock, screen-off, and suspend behaviors
