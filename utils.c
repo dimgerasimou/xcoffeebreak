@@ -46,9 +46,9 @@ warn(const char *fmt, ...)
 void
 verbose(const bool v, const char *fmt, ...)
 {
+	struct tm tm;
 	va_list ap;
 	time_t now;
-	struct tm tm;
 
 	if (!v)
 		return;

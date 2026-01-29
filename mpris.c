@@ -31,8 +31,8 @@ struct Mpris {
 	size_t cap_watches;
 
 	Player *players;
-	unsigned int playing_count;       /* number of players in Playing */
-	bool verbose;                     /* for logging */
+	unsigned int playing_count;
+	bool verbose;
 
 	struct pollfd *pfds;
 	size_t pfds_cap;
@@ -46,7 +46,9 @@ struct Mpris {
 static Player *
 player_find(Mpris *m, const char *name)
 {
-	for (Player *p = m->players; p; p = p->next)
+	Player *p;
+
+	for (p = m->players; p; p = p->next)
 		if (streq(p->name, name))
 			return p;
 	return NULL;
@@ -55,7 +57,9 @@ player_find(Mpris *m, const char *name)
 static Player *
 player_add(Mpris *m, const char *name)
 {
-	Player *p = calloc(1, sizeof(*p));
+	Player *p;
+	
+	p = calloc(1, sizeof(*p));
 	if (!p) {
 		warn("[MPRIS] calloc failed");
 		return NULL;
@@ -71,8 +75,7 @@ player_add(Mpris *m, const char *name)
 	p->next = m->players;
 	m->players = p;
 	
-	if (m->verbose)
-		verbose(1, "[MPRIS] player added: %s", name);
+	verbose(m->verbose, "[MPRIS] player added: %s", name);
 	
 	return p;
 }
@@ -80,17 +83,19 @@ player_add(Mpris *m, const char *name)
 static void
 player_remove(Mpris *m, const char *name)
 {
-	Player **pp = &m->players;
+	Player **pp;
+	
+	pp = &m->players;
 	while (*pp) {
 		Player *p = *pp;
+
 		if (streq(p->name, name)) {
 			if (p->is_playing && m->playing_count > 0)
 				m->playing_count--;
 			*pp = p->next;
-			
-			if (m->verbose)
-				verbose(1, "[MPRIS] player removed: %s", name);
-			
+
+			verbose(m->verbose, "[MPRIS] player removed: %s", name);
+
 			free(p->name);
 			free(p);
 			return;
@@ -104,15 +109,12 @@ player_set_playing(Mpris *m, Player *p, bool playing)
 {
 	if (!p)
 		return;
+
 	if (p->is_playing == playing)
 		return;
 
-	if (m->verbose) {
-		verbose(1, "[MPRIS] %s %s -> %s", 
-		        p->name,
-		        p->is_playing ? "playing" : "stopped",
-		        playing ? "playing" : "stopped");
-	}
+	verbose(m->verbose, "[MPRIS] %s %s -> %s", p->name,
+	        p->is_playing ? "playing" : "stopped", playing ? "playing" : "stopped");
 
 	p->is_playing = playing;
 	if (playing)
@@ -133,15 +135,20 @@ watch_index_by_ptr(Mpris *m, DBusWatch *w)
 static int
 watches_reserve(Mpris *m, size_t need)
 {
+	WatchEnt *nw;
+	size_t newcap;
+
 	if (need <= m->cap_watches)
 		return 0;
-	size_t newcap = m->cap_watches ? m->cap_watches * 2 : 16;
+
+	newcap = m->cap_watches ? m->cap_watches * 2 : 16;
 	if (newcap < need)
 		newcap = need;
 
-	WatchEnt *nw = realloc(m->watches, newcap * sizeof(*nw));
+	nw = realloc(m->watches, newcap * sizeof(*nw));
 	if (!nw)
 		return -1;
+
 	m->watches = nw;
 	m->cap_watches = newcap;
 	return 0;
@@ -151,37 +158,36 @@ static dbus_bool_t
 watch_add(DBusWatch *watch, void *data)
 {
 	Mpris *m = (Mpris *)data;
-
-	/*
-	 * DBus may add watches disabled and later enable them via watch_toggle().
-	 * We must still track them here, otherwise we'll never poll/handle them
-	 * once they become enabled.
-	 */
+	int fd;
 
 	if (watch_index_by_ptr(m, watch) >= 0)
 		return TRUE;
 
-	if (watches_reserve(m, m->nwatches + 1) < 0) {
+	if (watches_reserve(m, m->nwatches + 1)) {
 		warn("[MPRIS] out of memory (watch_add)");
 		return FALSE;
 	}
 
-	int fd = dbus_watch_get_unix_fd(watch);
+	fd = dbus_watch_get_unix_fd(watch);
 	m->watches[m->nwatches].watch = watch;
 	m->watches[m->nwatches].fd = fd;
 	m->nwatches++;
+
 	return TRUE;
 }
 
 static void
 watch_remove(DBusWatch *watch, void *data)
 {
-	Mpris *m = (Mpris *)data;
-	int idx = watch_index_by_ptr(m, watch);
+	Mpris *m;
+	int idx;
+
+	m = (Mpris *)data;
+	idx = watch_index_by_ptr(m, watch);
+
 	if (idx < 0)
 		return;
 
-	/* compact */
 	m->watches[idx] = m->watches[m->nwatches - 1];
 	m->nwatches--;
 }
@@ -189,7 +195,6 @@ watch_remove(DBusWatch *watch, void *data)
 static void
 watch_toggle(DBusWatch *watch, void *data)
 {
-	/* Nothing to do here: we consult enabled/flags at poll time. */
 	(void)watch;
 	(void)data;
 }
@@ -228,8 +233,10 @@ static unsigned long long
 monotonic_ms(void)
 {
 	struct timespec ts;
+
 	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
 		return 0;
+
 	return (unsigned long long)ts.tv_sec * 1000ULL +
 	       (unsigned long long)ts.tv_nsec / 1000000ULL;
 }
@@ -248,8 +255,15 @@ pfd_index(const struct pollfd *pfds, size_t nfds, int fd)
 static int
 dbus_call_get_playbackstatus(Mpris *m, const char *service, int *out_playing)
 {
+	DBusMessage *msg, *reply;
+	DBusMessageIter it, v;
+	DBusError err;
+	const char *iface = "org.mpris.MediaPlayer2.Player";
+	const char *prop  = "PlaybackStatus";
+	const char *status = NULL;
+
 	/* org.freedesktop.DBus.Properties.Get("org.mpris.MediaPlayer2.Player","PlaybackStatus") */
-	DBusMessage *msg = dbus_message_new_method_call(
+	msg = dbus_message_new_method_call(
 		service,
 		"/org/mpris/MediaPlayer2",
 		"org.freedesktop.DBus.Properties",
@@ -257,8 +271,6 @@ dbus_call_get_playbackstatus(Mpris *m, const char *service, int *out_playing)
 	if (!msg)
 		return -1;
 
-	const char *iface = "org.mpris.MediaPlayer2.Player";
-	const char *prop  = "PlaybackStatus";
 	if (!dbus_message_append_args(msg,
 	                             DBUS_TYPE_STRING, &iface,
 	                             DBUS_TYPE_STRING, &prop,
@@ -267,34 +279,31 @@ dbus_call_get_playbackstatus(Mpris *m, const char *service, int *out_playing)
 		return -1;
 	}
 
-	DBusError err;
 	dbus_error_init(&err);
 	/* Use shorter timeout to avoid blocking main loop */
-	DBusMessage *reply = dbus_connection_send_with_reply_and_block(m->conn, msg, DBUS_CALL_TIMEOUT_MS, &err);
+	reply = dbus_connection_send_with_reply_and_block(m->conn, msg, DBUS_CALL_TIMEOUT_MS, &err);
 	dbus_message_unref(msg);
 
 	if (!reply) {
 		/* Not fatal: player might not implement it yet or disappeared */
-		if (dbus_error_is_set(&err)) dbus_error_free(&err);
+		if (dbus_error_is_set(&err))
+			dbus_error_free(&err);
 		return -1;
 	}
 
 	/* reply has signature: (v) */
-	DBusMessageIter it;
 	dbus_message_iter_init(reply, &it);
 	if (dbus_message_iter_get_arg_type(&it) != DBUS_TYPE_VARIANT) {
 		dbus_message_unref(reply);
 		return -1;
 	}
 
-	DBusMessageIter v;
 	dbus_message_iter_recurse(&it, &v);
 	if (dbus_message_iter_get_arg_type(&v) != DBUS_TYPE_STRING) {
 		dbus_message_unref(reply);
 		return -1;
 	}
 
-	const char *status = NULL;
 	dbus_message_iter_get_basic(&v, &status);
 	*out_playing = (status && streq(status, "Playing")) ? 1 : 0;
 
@@ -305,8 +314,12 @@ dbus_call_get_playbackstatus(Mpris *m, const char *service, int *out_playing)
 static void
 initial_sync_players(Mpris *m)
 {
+	DBusMessage *msg, *reply;
+	DBusMessageIter it, arr;
+	DBusError err;
+
 	/* List all bus names, add any org.mpris.MediaPlayer2.*, and read current PlaybackStatus once. */
-	DBusMessage *msg = dbus_message_new_method_call(
+	msg = dbus_message_new_method_call(
 		"org.freedesktop.DBus",
 		"/org/freedesktop/DBus",
 		"org.freedesktop.DBus",
@@ -314,9 +327,8 @@ initial_sync_players(Mpris *m)
 	if (!msg)
 		return;
 
-	DBusError err;
 	dbus_error_init(&err);
-	DBusMessage *reply = dbus_connection_send_with_reply_and_block(m->conn, msg, DBUS_CALL_TIMEOUT_MS, &err);
+	reply = dbus_connection_send_with_reply_and_block(m->conn, msg, DBUS_CALL_TIMEOUT_MS, &err);
 	dbus_message_unref(msg);
 	if (!reply) {
 		if (dbus_error_is_set(&err))
@@ -324,28 +336,30 @@ initial_sync_players(Mpris *m)
 		return;
 	}
 
-	DBusMessageIter it;
 	if (!dbus_message_iter_init(reply, &it) ||
 	    dbus_message_iter_get_arg_type(&it) != DBUS_TYPE_ARRAY) {
 		dbus_message_unref(reply);
 		return;
 	}
 
-	DBusMessageIter arr;
 	dbus_message_iter_recurse(&it, &arr);
 	while (dbus_message_iter_get_arg_type(&arr) == DBUS_TYPE_STRING) {
 		const char *name = NULL;
+
 		dbus_message_iter_get_basic(&arr, &name);
 
 		if (name && strncmp(name, "org.mpris.MediaPlayer2.", 23) == 0) {
-			Player *p = player_find(m, name);
+			Player *p;
+			int playing;
+
+			p = player_find(m, name);
 			if (!p) {
 				p = player_add(m, name);
 				if (!p)
 					continue;
 			}
 
-			int playing = 0;
+			playing = 0;
 			if (p && dbus_call_get_playbackstatus(m, name, &playing) == 0)
 				player_set_playing(m, p, playing);
 		}
@@ -361,10 +375,16 @@ initial_sync_players(Mpris *m)
 static int
 read_variant_string(DBusMessageIter *variant, const char **out)
 {
-	if (dbus_message_iter_get_arg_type(variant) != DBUS_TYPE_VARIANT) return 0;
 	DBusMessageIter sub;
+
+	if (dbus_message_iter_get_arg_type(variant) != DBUS_TYPE_VARIANT)
+		return 0;
+
 	dbus_message_iter_recurse(variant, &sub);
-	if (dbus_message_iter_get_arg_type(&sub) != DBUS_TYPE_STRING) return 0;
+
+	if (dbus_message_iter_get_arg_type(&sub) != DBUS_TYPE_STRING)
+		return 0;
+
 	dbus_message_iter_get_basic(&sub, out);
 	return 1;
 }
@@ -373,51 +393,63 @@ read_variant_string(DBusMessageIter *variant, const char **out)
 static void
 handle_properties_changed(Mpris *m, DBusMessage *msg)
 {
-	const char *sender = dbus_message_get_sender(msg);
+	Player *p;
+	DBusMessageIter it, array;
+
+	const char *sender, *iface = NULL;
+	int saw_status = 0;
+
+	sender = dbus_message_get_sender(msg);
 	if (!sender)
 		return;
 
 	if (strncmp(sender, "org.mpris.MediaPlayer2.", 23) != 0)
 		return;
 
-	Player *p = player_find(m, sender);
+	p = player_find(m, sender);
 	if (!p)
 		p = player_add(m, sender);
 	if (!p)
 		return;
 
-	DBusMessageIter it;
-	if (!dbus_message_iter_init(msg, &it)) return;
+	if (!dbus_message_iter_init(msg, &it))
+		return;
 
 	/* 1st arg: interface name */
-	const char *iface = NULL;
-	if (dbus_message_iter_get_arg_type(&it) != DBUS_TYPE_STRING) return;
+	if (dbus_message_iter_get_arg_type(&it) != DBUS_TYPE_STRING)
+		return;
+
 	dbus_message_iter_get_basic(&it, &iface);
 	if (!streq(iface, "org.mpris.MediaPlayer2.Player"))
 		return;
 
 	/* 2nd arg: changed properties (a{sv}) */
-	if (!dbus_message_iter_next(&it)) return;
-	if (dbus_message_iter_get_arg_type(&it) != DBUS_TYPE_ARRAY) return;
+	if (!dbus_message_iter_next(&it))
+		return;
 
-	DBusMessageIter array;
+	if (dbus_message_iter_get_arg_type(&it) != DBUS_TYPE_ARRAY)
+		return;
+
 	dbus_message_iter_recurse(&it, &array);
-
-	int saw_status = 0;
 
 	while (dbus_message_iter_get_arg_type(&array) == DBUS_TYPE_DICT_ENTRY) {
 		DBusMessageIter entry;
+		const char *key = NULL;
+
 		dbus_message_iter_recurse(&array, &entry);
 
-		const char *key = NULL;
-		if (dbus_message_iter_get_arg_type(&entry) != DBUS_TYPE_STRING) break;
+		if (dbus_message_iter_get_arg_type(&entry) != DBUS_TYPE_STRING)
+			break;
+
 		dbus_message_iter_get_basic(&entry, &key);
 
-		if (!dbus_message_iter_next(&entry)) break;
+		if (!dbus_message_iter_next(&entry))
+			break;
 
 		if (streq(key, "PlaybackStatus")) {
-			saw_status = 1;
 			const char *status = NULL;
+
+			saw_status = 1;
 			if (read_variant_string(&entry, &status)) {
 				player_set_playing(m, p, streq(status, "Playing"));
 			}
@@ -430,6 +462,7 @@ handle_properties_changed(Mpris *m, DBusMessage *msg)
 	 * If we didn't see it, do a one-off Get to resync. */
 	if (!saw_status) {
 		int playing = 0;
+		
 		if (dbus_call_get_playbackstatus(m, sender, &playing) == 0)
 			player_set_playing(m, p, playing);
 	}
@@ -439,7 +472,10 @@ handle_properties_changed(Mpris *m, DBusMessage *msg)
 static void
 handle_name_owner_changed(Mpris *m, DBusMessage *msg)
 {
+	Player *p;
 	const char *name = NULL, *old_owner = NULL, *new_owner = NULL;
+	int playing;
+
 	if (!dbus_message_get_args(msg, NULL,
 	                          DBUS_TYPE_STRING, &name,
 	                          DBUS_TYPE_STRING, &old_owner,
@@ -459,16 +495,15 @@ handle_name_owner_changed(Mpris *m, DBusMessage *msg)
 	}
 
 	/* appeared: add and do a one-time Get for current status */
-	Player *p = player_find(m, name);
+	p = player_find(m, name);
 	if (!p)
 		p = player_add(m, name);
 	if (!p)
 		return;
 
-	int playing = 0;
-	if (dbus_call_get_playbackstatus(m, name, &playing) == 0) {
+	playing = 0;
+	if (dbus_call_get_playbackstatus(m, name, &playing) == 0)
 		player_set_playing(m, p, playing);
-	}
 }
 
 static size_t
@@ -478,6 +513,7 @@ dispatch_all_messages(Mpris *m)
 
 	for (;;) {
 		DBusMessage *msg = dbus_connection_pop_message(m->conn);
+
 		if (!msg)
 			break;
 
@@ -498,9 +534,10 @@ dispatch_all_messages(Mpris *m)
 static int
 mpris_setup(Mpris *m, bool verbose)
 {
+	DBusError err;
+
 	m->verbose = verbose;
 
-	DBusError err;
 	dbus_error_init(&err);
 
 	m->conn = dbus_bus_get(DBUS_BUS_SESSION, &err);
@@ -568,6 +605,7 @@ mpris_init(bool verbose)
 
 		while (m->players) {
 			Player *p = m->players;
+
 			m->players = p->next;
 			free(p->name);
 			free(p);
@@ -593,6 +631,7 @@ mpris_cleanup(Mpris *m)
 
 	while (m->players) {
 		Player *p = m->players;
+
 		m->players = p->next;
 		free(p->name);
 		free(p);
@@ -615,6 +654,7 @@ mpris_is_playing(const Mpris *m)
 {
 	if (!m)
 		return false;
+
 	return m->playing_count > 0;
 }
 
@@ -623,35 +663,45 @@ mpris_check_connection(Mpris *m)
 {
 	if (!m || !m->conn)
 		return -1;
+
 	if (!dbus_connection_get_is_connected(m->conn))
 		return -1;
+
 	return 0;
 }
 
 int
 mpris_poll(Mpris *m, unsigned int timeout_ms)
 {
+	struct pollfd *pfds;
+	int pret;
+	size_t nfds;
+	size_t cap;
+
 	if (!m)
 		return -1;
 
 	if (mpris_check_connection(m) < 0)
 		return -1;
 
+	pfds = m->pfds;
+	nfds = 0;
+	cap  = m->pfds_cap;
+
 	/* ---------- build pollfd set (unique fds, OR'd events) ---------- */
 
-	struct pollfd *pfds = m->pfds;
-	size_t nfds = 0;
-	size_t cap  = m->pfds_cap;
-
 	for (size_t i = 0; i < m->nwatches; i++) {
-		DBusWatch *w = m->watches[i].watch;
+		DBusWatch *w;
+		size_t idx;
+
+		w  = m->watches[i].watch;
 		if (!dbus_watch_get_enabled(w))
 			continue;
 
 		const int   fd = m->watches[i].fd;
 		const short ev = dbus_flags_to_poll(dbus_watch_get_flags(w));
 
-		size_t idx = pfd_index(pfds, nfds, fd);
+		idx = pfd_index(pfds, nfds, fd);
 		if (idx != (size_t)-1) {
 			pfds[idx].events |= ev;
 			continue;
@@ -660,10 +710,12 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 		if (nfds == cap) {
 			size_t ncap = cap ? cap * 2 : 16;
 			struct pollfd *np = realloc(pfds, ncap * sizeof(*np));
+
 			if (!np) {
 				warn("[MPRIS] realloc failed for pollfd array:");
 				return -1;
 			}
+
 			pfds = np;
 			cap = ncap;
 			m->pfds = pfds;
@@ -676,7 +728,7 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 		nfds++;
 	}
 
-	int pret = poll(pfds, (nfds_t)nfds, (int)timeout_ms);
+	pret = poll(pfds, (nfds_t)nfds, (int)timeout_ms);
 	if (pret < 0) {
 		if (errno != EINTR) {
 			warn("[MPRIS] poll failed:");
@@ -689,7 +741,10 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 
 	if (pret > 0) {
 		for (size_t i = 0; i < m->nwatches; i++) {
-			DBusWatch *w = m->watches[i].watch;
+			DBusWatch *w;
+			unsigned int masked;
+
+			w = m->watches[i].watch;
 			if (!dbus_watch_get_enabled(w))
 				continue;
 
@@ -709,9 +764,8 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 			 * Only deliver READABLE/WRITABLE if the watch asked for them.
 			 * Always deliver ERROR/HANGUP when present.
 			 */
-			unsigned int masked =
-			    (all_flags & (DBUS_WATCH_ERROR | DBUS_WATCH_HANGUP)) |
-			    (all_flags & wflags);
+			masked = (all_flags & (DBUS_WATCH_ERROR | DBUS_WATCH_HANGUP)) |
+			         (all_flags & wflags);
 
 			if (masked)
 				dbus_watch_handle(w, masked);
@@ -757,7 +811,6 @@ mpris_poll(Mpris *m, unsigned int timeout_ms)
 #endif
 	}
 
-	/* Persist buffer back to the handle (in case we never grew it). */
 	m->pfds = pfds;
 	m->pfds_cap = cap;
 

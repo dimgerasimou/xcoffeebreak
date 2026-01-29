@@ -34,6 +34,9 @@ State
 state_manager_update(StateManager *sm, const Options *opt,
                      unsigned long raw_idle_ms, bool playing)
 {
+	State desired;
+	unsigned long eff_idle_ms, eff_idle_s;
+
 	/*
 	 * Baseline idle time management:
 	 *
@@ -70,12 +73,11 @@ state_manager_update(StateManager *sm, const Options *opt,
 	}
 
 	/* Don't update state while media is playing */
-	if (playing) {
+	if (playing)
 		return sm->current;
-	}
 
 	/* Calculate effective idle time with overflow protection */
-	unsigned long eff_idle_ms;
+	
 	if (raw_idle_ms >= sm->baseline_idle_ms) {
 		eff_idle_ms = raw_idle_ms - sm->baseline_idle_ms;
 	} else {
@@ -83,13 +85,12 @@ state_manager_update(StateManager *sm, const Options *opt,
 		eff_idle_ms = 0;
 	}
 
-	unsigned long eff_idle_s = eff_idle_ms / 1000UL;
-	State desired = state_desired(opt, eff_idle_s);
+	eff_idle_s = eff_idle_ms / 1000UL;
+	desired = state_desired(opt, eff_idle_s);
 
 	/* Backward transitions: just update state, no commands */
-	if (desired < sm->current) {
+	if (desired < sm->current)
 		sm->current = desired;
-	}
 
 	return desired;
 }
@@ -103,19 +104,20 @@ state_manager_check_suspend(StateManager *sm)
 	 * suspended and resumed.
 	 */
 	struct timespec ts;
+	unsigned long now_ms, delta_ms;
+
 	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
 		return false;
 
-	unsigned long now_ms =
-	    (unsigned long)ts.tv_sec * 1000UL +
-	    (unsigned long)ts.tv_nsec / 1000000UL;
+	now_ms = (unsigned long)ts.tv_sec * 1000UL +
+	         (unsigned long)ts.tv_nsec / 1000000UL;
 
 	if (sm->last_clock_ms == 0) {
 		sm->last_clock_ms = now_ms;
 		return false;
 	}
 
-	unsigned long delta_ms = now_ms - sm->last_clock_ms;
+	delta_ms = now_ms - sm->last_clock_ms;
 	sm->last_clock_ms = now_ms;
 
 	/* Suspend detected if more than threshold passed in one poll cycle */

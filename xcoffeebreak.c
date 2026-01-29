@@ -38,15 +38,16 @@ init(Options *opt, X11 **x, StateManager *sm, Mpris **m)
 void
 signals_init(void)
 {
-	/* Setup signal handlers FIRST, before any fork() calls */
 	struct sigaction sa;
+	struct sigaction sachld;
+
+	/* Setup signal handlers FIRST, before any fork() calls */
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = sighandler;
 	sigaction(SIGINT,  &sa, NULL);
 	sigaction(SIGTERM, &sa, NULL);
 
 	/* Avoid zombie children from non-blocking fork/exec */
-	struct sigaction sachld;
 	memset(&sachld, 0, sizeof(sachld));
 	sachld.sa_handler = SIG_IGN;
 	sachld.sa_flags = SA_NOCLDWAIT;
