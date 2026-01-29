@@ -1,3 +1,5 @@
+/* See LICENSE file for copyright and license details. */
+
 #include <dbus/dbus.h>
 #include <errno.h>
 #include <poll.h>

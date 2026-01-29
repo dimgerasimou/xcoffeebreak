@@ -1,3 +1,6 @@
+# xcoffeebreak - dynamic window manager
+# See LICENSE file for copyright and license details.
+
 CC       ?= cc
 CFLAGS   ?= -Wall -Wextra -Wno-deprecated-declarations -Os
 CPPFLAGS += -MMD -MP

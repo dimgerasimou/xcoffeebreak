@@ -1,3 +1,12 @@
+/* xcoffeebreak
+ * Copyright (c) 2026 Dimitris Gerasimou
+ * Licensed under the GNU General Public License v3.
+ *
+ * X11 idle management daemon with MPRIS support.
+ *
+ * To understand everything, start reading main().
+ */
+
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>

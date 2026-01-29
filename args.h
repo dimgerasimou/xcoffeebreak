@@ -1,3 +1,5 @@
+/* See LICENSE file for copyright and license details. */
+
 #ifndef XCOFFEBREAK_ARGS_H
 #define XCOFFEBREAK_ARGS_H
 

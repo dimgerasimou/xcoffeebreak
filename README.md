@@ -49,6 +49,13 @@ xcoffeebreak &
 - **Suspend detection**: Automatically resets idle timers after system resume
 - **Configurable timeouts and commands**: Customize lock, screen-off, and suspend behaviors
 
+## License
+
+This project is licensed under the GNU General Public License v3.
+See the LICENSE file for details.
+
+© 2026 Dimitris Gerasimou
+
 ## See Also
 
 - [xautolock](https://linux.die.net/man/1/xautolock) - Alternative X11 idle locker
