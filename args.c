@@ -9,6 +9,10 @@
 #include "args.h"
 #include "utils.h"
 
+#ifndef VERSION
+#define VERSION "unknown"
+#endif
+
 enum {
 	OPT_LOCK_S = 1000,
 	OPT_LOCK_CMD,
@@ -20,6 +24,7 @@ enum {
 	OPT_VERBOSE,
 	OPT_DRY_RUN,
 	OPT_HELP,
+	OPT_VERSION,
 };
 
 static void
@@ -65,6 +70,7 @@ usage(void)
 	      "                    [--poll_ms milliseconds]\n"
 	      "\n"
 	      "--help              Print this message and exit\n"
+	      "--version           Print version and exit\n"
 	      "--verbose           Print state transitions\n"
 	      "--dry_run           Do not run commands (log only)\n"
 	      "--poll_ms           Set polling rate in milliseconds\n"
@@ -101,6 +107,7 @@ args_argv(Options *o, const int argc, char *argv[])
 		{ "verbose",     no_argument,       0, OPT_VERBOSE     },
 		{ "dry_run",     no_argument,       0, OPT_DRY_RUN     },
 		{ "help",        no_argument,       0, OPT_HELP        },
+		{ "version",     no_argument,       0, OPT_VERSION     },
 		{ 0,             0,                 0, 0               },
 	};
 
@@ -160,6 +167,10 @@ args_argv(Options *o, const int argc, char *argv[])
 
 		case OPT_HELP:
 			usage();
+			exit(0);
+
+		case OPT_VERSION:
+			fputs("xcoffeebreak-"VERSION"\n", stdout);
 			exit(0);
 
 		default:

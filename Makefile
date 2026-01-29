@@ -1,9 +1,10 @@
 # xcoffeebreak - dynamic window manager
 # See LICENSE file for copyright and license details.
 
+VERSION  ?= 0.1.0
 CC       ?= cc
 CFLAGS   ?= -Wall -Wextra -Wno-deprecated-declarations -Os
-CPPFLAGS += -MMD -MP
+CPPFLAGS += -MMD -MP -DVERSION=\"${VERSION}\"
 LDLIBS   ?= -lX11 -lXss
 
 PREFIX    ?= /usr/local
@@ -61,7 +62,8 @@ install: $(TARGET)
 	@install -d $(DESTDIR)$(PREFIX)/bin
 	@install -d $(DESTDIR)$(MANPREFIX)/man1
 	@install -m 755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/$(BIN)
-	@install -m 644 $(BIN).1 $(DESTDIR)$(MANPREFIX)/man1/$(BIN).1
+	@sed "s/VERSION/$(VERSION)/g" < $(BIN).1 > $(DESTDIR)$(MANPREFIX)/man1/$(BIN).1
+	@chmod 644 $(DESTDIR)$(MANPREFIX)/man1/$(BIN).1
 
 uninstall:
 	@$(PRINTF) "$(COLOR_CYAN)Uninstalling $(BIN) from:$(COLOR_RESET) %s\n" "$(DESTDIR)$(PREFIX)/bin/$(BIN)"
